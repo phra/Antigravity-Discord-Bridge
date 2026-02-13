@@ -1,0 +1,96 @@
+{
+    "name": "antigravity-discord",
+    "displayName": "Antigravity Discord Bridge",
+    "description": "Bridge your VS Code AI chat with a Discord channel — auto-process messages with your IDE's Language Model",
+    "version": "0.1.0",
+    "publisher": "phra",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/phra/Antigravity-Discord-Bridge.git"
+    },
+    "homepage": "https://github.com/phra/Antigravity-Discord-Bridge#readme",
+    "bugs": {
+        "url": "https://github.com/phra/Antigravity-Discord-Bridge/issues"
+    },
+    "keywords": [
+        "discord",
+        "chat",
+        "bridge",
+        "ai",
+        "language-model"
+    ],
+    "engines": {
+        "vscode": "^1.93.0"
+    },
+    "categories": [
+        "Chat"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "chatParticipants": [
+            {
+                "id": "antigravity.discord",
+                "fullName": "Discord Bridge",
+                "name": "discord",
+                "description": "Bridge chat with Discord channel",
+                "isSticky": false
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "antigravity-discord",
+                    "title": "Discord",
+                    "icon": "media/discord.svg"
+                }
+            ]
+        },
+        "views": {
+            "antigravity-discord": [
+                {
+                    "type": "webview",
+                    "id": "antigravity-discord.chatView",
+                    "name": "Discord Chat"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "antigravity-discord.reconnect",
+                "title": "Antigravity Discord: Reconnect"
+            }
+        ],
+        "configuration": {
+            "title": "Antigravity Discord Bridge",
+            "properties": {
+                "antigravity-discord.botToken": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Discord Bot Token"
+                },
+                "antigravity-discord.channelId": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Discord Channel ID to bridge"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "lint": "eslint src",
+        "package": "vsce package"
+    },
+    "dependencies": {
+        "discord.js": "^14.16.0"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.93.0",
+        "typescript": "^5.5.0"
+    }
+}
