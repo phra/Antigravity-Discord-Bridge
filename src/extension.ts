@@ -30,7 +30,10 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(participant);
 
     // Try to connect Discord on activation
-    connectDiscord();
+    connectDiscord().catch((err) => {
+        outputChannel.appendLine(`[Extension] Activation connect failed: ${err}`);
+        outputChannel.show(true);
+    });
 
     // Reconnect when settings change
     context.subscriptions.push(
@@ -39,7 +42,10 @@ export function activate(context: vscode.ExtensionContext) {
                 e.affectsConfiguration("antigravity-discord.botToken") ||
                 e.affectsConfiguration("antigravity-discord.channelId")
             ) {
-                connectDiscord();
+                connectDiscord().catch((err) => {
+                    outputChannel.appendLine(`[Extension] Reconnect failed: ${err}`);
+                    outputChannel.show(true);
+                });
             }
         })
     );
@@ -49,7 +55,10 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "antigravity-discord.reconnect",
             () => {
-                connectDiscord();
+                connectDiscord().catch((err) => {
+                    outputChannel.appendLine(`[Extension] Manual reconnect failed: ${err}`);
+                    outputChannel.show(true);
+                });
             }
         )
     );
@@ -71,6 +80,10 @@ async function connectDiscord(): Promise<void> {
     const config = vscode.workspace.getConfiguration("antigravity-discord");
     const token = config.get<string>("botToken", "");
     const channelId = config.get<string>("channelId", "");
+
+    outputChannel.appendLine(
+        `[Extension] connectDiscord called. Token: ${token ? "set (" + token.substring(0, 5) + "...)" : "EMPTY"}, Channel: ${channelId || "EMPTY"}`
+    );
 
     if (!token || !channelId) {
         outputChannel.appendLine(
