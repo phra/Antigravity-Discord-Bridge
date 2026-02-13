@@ -2,11 +2,13 @@ import {
     Client,
     GatewayIntentBits,
     TextChannel,
+    ThreadChannel,
     Message,
     Events,
     Partials,
     ActivityType,
     PresenceStatusData,
+    ThreadAutoArchiveDuration,
 } from "discord.js";
 import * as vscode from "vscode";
 
@@ -15,6 +17,7 @@ export interface DiscordMessage {
     content: string;
     timestamp: Date;
     attachments: string[];
+    messageId: string;
 }
 
 type MessageCallback = (msg: DiscordMessage) => void;
@@ -90,6 +93,36 @@ export class DiscordClient {
         }
     }
 
+    /**
+     * Create a thread on a specific message (for reasoning stream).
+     */
+    async createThread(messageId: string, name: string): Promise<ThreadChannel> {
+        if (!this.channel) {
+            throw new Error("Not connected to Discord");
+        }
+
+        const message = await this.channel.messages.fetch(messageId);
+        const thread = await message.startThread({
+            name: name.substring(0, 100), // Discord max thread name = 100 chars
+            autoArchiveDuration: ThreadAutoArchiveDuration.OneHour,
+        });
+
+        this.outputChannel.appendLine(
+            `[Discord] Created thread: ${thread.name}`
+        );
+        return thread;
+    }
+
+    /**
+     * Send a message to a thread, splitting if needed.
+     */
+    async sendToThread(thread: ThreadChannel, content: string): Promise<void> {
+        const chunks = this.splitMessage(content);
+        for (const chunk of chunks) {
+            await thread.send(chunk);
+        }
+    }
+
     async setTyping(): Promise<void> {
         if (this.channel) {
             await this.channel.sendTyping();
@@ -132,6 +165,7 @@ export class DiscordClient {
                 content: message.content,
                 timestamp: message.createdAt,
                 attachments: message.attachments.map((a) => a.url),
+                messageId: message.id,
             });
         }
     }

@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 import { DiscordClient, DiscordMessage } from "./discord-client.js";
 import { ChatPanelProvider } from "./chat-panel.js";
-
-const PARTICIPANT_ID = "antigravity.discord";
+import { CdpBridge } from "./cdp-bridge.js";
 
 let discordClient: DiscordClient | null = null;
+let cdpBridge: CdpBridge | null = null;
 let chatPanel: ChatPanelProvider;
 let outputChannel: vscode.OutputChannel;
 let processing = false;
@@ -21,18 +21,15 @@ export function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Register the @discord chat participant (for IDE → Discord)
-    const participant = vscode.chat.createChatParticipant(
-        PARTICIPANT_ID,
-        chatHandler
-    );
-    participant.iconPath = new vscode.ThemeIcon("comment-discussion");
-    context.subscriptions.push(participant);
-
     // Try to connect Discord on activation
     connectDiscord().catch((err) => {
-        outputChannel.appendLine(`[Extension] Activation connect failed: ${err}`);
+        outputChannel.appendLine(`[Extension] Discord connect failed: ${err}`);
         outputChannel.show(true);
+    });
+
+    // Try to connect to CDP on activation
+    connectCdp().catch((err) => {
+        outputChannel.appendLine(`[Extension] CDP connect failed: ${err}`);
     });
 
     // Reconnect when settings change
@@ -44,7 +41,11 @@ export function activate(context: vscode.ExtensionContext) {
             ) {
                 connectDiscord().catch((err) => {
                     outputChannel.appendLine(`[Extension] Reconnect failed: ${err}`);
-                    outputChannel.show(true);
+                });
+            }
+            if (e.affectsConfiguration("antigravity-discord.debugPort")) {
+                connectCdp().catch((err) => {
+                    outputChannel.appendLine(`[Extension] CDP reconnect failed: ${err}`);
                 });
             }
         })
@@ -59,17 +60,50 @@ export function activate(context: vscode.ExtensionContext) {
                     outputChannel.appendLine(`[Extension] Manual reconnect failed: ${err}`);
                     outputChannel.show(true);
                 });
+                connectCdp().catch((err) => {
+                    outputChannel.appendLine(`[Extension] Manual CDP reconnect failed: ${err}`);
+                });
             }
         )
     );
 
     outputChannel.appendLine("[Extension] Antigravity Discord Bridge activated");
+    outputChannel.show(true);
 }
 
 export function deactivate() {
     if (discordClient) {
         discordClient.disconnect();
         discordClient = null;
+    }
+    if (cdpBridge) {
+        cdpBridge.disconnect();
+        cdpBridge = null;
+    }
+}
+
+/**
+ * Connect to CDP (Chrome DevTools Protocol) for chat interaction.
+ */
+async function connectCdp(): Promise<void> {
+    const config = vscode.workspace.getConfiguration("antigravity-discord");
+    const port = config.get<number>("debugPort", 9000);
+
+    outputChannel.appendLine(`[Extension] Connecting to CDP on port ${port}...`);
+
+    if (cdpBridge) {
+        cdpBridge.disconnect();
+    }
+
+    cdpBridge = new CdpBridge(port, outputChannel);
+
+    try {
+        await cdpBridge.connect();
+        outputChannel.appendLine("[Extension] CDP bridge ready");
+    } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        outputChannel.appendLine(`[Extension] CDP failed: ${errorMsg}`);
+        cdpBridge = null;
     }
 }
 
@@ -92,14 +126,12 @@ async function connectDiscord(): Promise<void> {
         return;
     }
 
-    // Disconnect existing client
     if (discordClient) {
         await discordClient.disconnect();
     }
 
     discordClient = new DiscordClient(channelId, outputChannel);
 
-    // Auto-process incoming Discord messages
     discordClient.onMessage((msg: DiscordMessage) => {
         handleDiscordMessage(msg);
     });
@@ -111,8 +143,7 @@ async function connectDiscord(): Promise<void> {
             "Antigravity Discord Bridge: Connected!"
         );
     } catch (err: unknown) {
-        const errorMsg =
-            err instanceof Error ? err.message : String(err);
+        const errorMsg = err instanceof Error ? err.message : String(err);
         outputChannel.appendLine(`[Extension] Connection failed: ${errorMsg}`);
         vscode.window.showErrorMessage(
             `Discord connection failed: ${errorMsg}`
@@ -122,12 +153,13 @@ async function connectDiscord(): Promise<void> {
 }
 
 /**
- * Auto-process a Discord message: send to LM, reply on Discord.
- * Shows a notification in VS Code with the question and a summary.
+ * Process a Discord message:
+ * 1. Inject it into the Antigravity chat via CDP
+ * 2. Wait for the agent to respond
+ * 3. Extract the response and send it back to Discord
  */
 async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
     if (processing) {
-        // Queue a "busy" reply
         outputChannel.appendLine(
             `[Extension] Busy processing, skipping message from ${msg.author}`
         );
@@ -137,6 +169,22 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             );
         }
         return;
+    }
+
+    if (!cdpBridge?.isConnected()) {
+        outputChannel.appendLine("[Extension] CDP bridge not connected. Trying to reconnect...");
+        try {
+            await connectCdp();
+        } catch { }
+
+        if (!cdpBridge?.isConnected()) {
+            if (discordClient?.isConnected()) {
+                await discordClient.sendMessage(
+                    `⚠️ Bridge non connesso. Avvia Antigravity con --remote-debugging-port=9000`
+                );
+            }
+            return;
+        }
     }
 
     processing = true;
@@ -161,28 +209,127 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
     );
 
     try {
-        const response = await sendToLM(msg.content);
+        // 0. Ensure the chat panel is focused (NOT toggle — openAgent closes it if already open!)
+        try {
+            await vscode.commands.executeCommand("antigravity.agentPanel.focus");
+            await new Promise(r => setTimeout(r, 1000)); // wait for UI to settle
+            outputChannel.appendLine("[CDP] Focused agent panel");
+        } catch (err) {
+            outputChannel.appendLine(`[CDP] Could not focus agent panel: ${err}`);
+        }
 
-        // Show response in WebView panel
-        chatPanel.setTyping("assistant", false);
-        chatPanel.addMessage("assistant", "Antigravity", response);
+        // 0b. Run DOM discovery to understand the chat UI structure
+        try {
+            const domInfo = await cdpBridge!.discoverDom();
+            outputChannel.appendLine(`[CDP] DOM discovery:\n${domInfo}`);
+        } catch (err) {
+            outputChannel.appendLine(`[CDP] DOM discovery failed: ${err}`);
+        }
 
-        // Send response to Discord
-        if (discordClient?.isConnected() && response.length > 0) {
-            await discordClient.sendMessage(response);
+        // 1. Take a pre-snapshot of the chat
+        const preSnapshot = await cdpBridge!.chatSnapshot();
+        outputChannel.appendLine(
+            `[CDP] Pre-snapshot: ${preSnapshot.count} messages`
+        );
+
+        // 2. Inject the message into the Antigravity chat
+        const sendResult = await cdpBridge!.sendMessage(msg.content);
+        if (!sendResult.ok) {
+            throw new Error(`Failed to inject message: ${sendResult.error}`);
+        }
+        outputChannel.appendLine(
+            `[CDP] Message injected (${(sendResult as { method?: string }).method || "unknown"})`
+        );
+
+        // 3. Create a Discord thread for reasoning/thinking stream
+        let reasoningThread: import("discord.js").ThreadChannel | null = null;
+        try {
+            if (discordClient?.isConnected()) {
+                reasoningThread = await discordClient.createThread(
+                    msg.messageId,
+                    `🤔 ${msg.content.substring(0, 80)}`
+                );
+                await discordClient.sendToThread(
+                    reasoningThread,
+                    `💭 **Ragionamento in corso...**`
+                );
+            }
+        } catch (threadErr) {
             outputChannel.appendLine(
-                `[Extension] Response sent to Discord (${response.length} chars)`
+                `[Extension] Could not create thread: ${threadErr instanceof Error ? threadErr.message : String(threadErr)}`
             );
         }
 
-        // Notify IDE user
-        vscode.window.setStatusBarMessage(
-            `✅ Discord: risposta inviata a ${msg.author}`,
-            5000
-        );
+        // 4. Keep discord typing indicator alive during processing
+        const typingInterval = setInterval(() => {
+            if (discordClient?.isConnected()) {
+                discordClient.setTyping().catch(() => { });
+            }
+        }, 5000);
+
+        // 5. Wait for the agent to respond, streaming reasoning to thread
+        try {
+            const streamCallback = reasoningThread
+                ? async (chunk: string) => {
+                    try {
+                        if (discordClient?.isConnected() && reasoningThread) {
+                            await discordClient.sendToThread(reasoningThread, chunk);
+                            outputChannel.appendLine(
+                                `[Stream] Sent ${chunk.length} chars to thread`
+                            );
+                        }
+                    } catch (e) {
+                        outputChannel.appendLine(
+                            `[Stream] Error sending to thread: ${e instanceof Error ? e.message : String(e)}`
+                        );
+                    }
+                }
+                : undefined;
+
+            const response = await cdpBridge!.waitForResponse(
+                preSnapshot, msg.content, streamCallback
+            );
+            clearInterval(typingInterval);
+
+            outputChannel.appendLine(
+                `[CDP] Final response extracted (${response.length} chars)`
+            );
+
+            // Close out the reasoning thread
+            if (reasoningThread && discordClient?.isConnected()) {
+                try {
+                    await discordClient.sendToThread(
+                        reasoningThread,
+                        `✅ **Elaborazione completata**`
+                    );
+                } catch { }
+            }
+
+            // Show in WebView
+            chatPanel.setTyping("assistant", false);
+            chatPanel.addMessage("assistant", "Antigravity", response);
+
+            // Send final response to main channel (NOT thread)
+            if (discordClient?.isConnected() && response.length > 0) {
+                await discordClient.sendMessage(response);
+                outputChannel.appendLine(
+                    `[Extension] Final response sent to Discord channel (${response.length} chars)`
+                );
+            }
+
+            vscode.window.setStatusBarMessage(
+                `✅ Discord: risposta inviata a ${msg.author}`,
+                5000
+            );
+        } catch (waitErr) {
+            clearInterval(typingInterval);
+            throw waitErr;
+        }
     } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         outputChannel.appendLine(`[Extension] Error processing: ${errorMsg}`);
+
+        chatPanel.setTyping("assistant", false);
 
         if (discordClient?.isConnected()) {
             await discordClient
@@ -194,101 +341,3 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
         discordClient?.setPresence("online", "Waiting for commands");
     }
 }
-
-/**
- * Send a prompt to the Language Model and return the full response.
- */
-async function sendToLM(prompt: string): Promise<string> {
-    const models = await vscode.lm.selectChatModels();
-    if (models.length === 0) {
-        throw new Error("Nessun Language Model disponibile");
-    }
-
-    const model = models[0];
-    const messages = [vscode.LanguageModelChatMessage.User(prompt)];
-    const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
-
-    let fullResponse = "";
-    for await (const chunk of response.text) {
-        fullResponse += chunk;
-
-        // Refresh typing indicator every ~5s worth of chunks
-        if (discordClient?.isConnected()) {
-            discordClient.setTyping().catch(() => { });
-        }
-    }
-
-    return fullResponse;
-}
-
-/**
- * Chat Participant handler — for IDE-initiated messages via @discord.
- * Sends prompt to LM, shows response in IDE, forwards to Discord.
- */
-const chatHandler: vscode.ChatRequestHandler = async (
-    request: vscode.ChatRequest,
-    _context: vscode.ChatContext,
-    stream: vscode.ChatResponseStream,
-    token: vscode.CancellationToken
-): Promise<vscode.ChatResult> => {
-    const prompt = request.prompt.trim();
-
-    if (!prompt) {
-        stream.markdown("Scrivi un messaggio da inviare anche su Discord.");
-        return {};
-    }
-
-    // Set busy presence and typing indicator
-    if (discordClient?.isConnected()) {
-        discordClient.setPresence("dnd", "Writing code");
-        discordClient.setTyping().catch(() => { });
-    }
-
-    // Send to LM and stream to IDE chat
-    const models = await vscode.lm.selectChatModels();
-    if (models.length === 0) {
-        stream.markdown(
-            "⚠️ Nessun Language Model disponibile. Assicurati di avere Gemini o Copilot attivo."
-        );
-        return {};
-    }
-
-    const model = models[0];
-    const messages = [vscode.LanguageModelChatMessage.User(prompt)];
-
-    try {
-        const response = await model.sendRequest(messages, {}, token);
-
-        let fullResponse = "";
-        for await (const chunk of response.text) {
-            stream.markdown(chunk);
-            fullResponse += chunk;
-        }
-
-        // Forward to Discord
-        if (discordClient?.isConnected() && fullResponse.length > 0) {
-            try {
-                await discordClient.sendMessage(fullResponse);
-                stream.markdown("\n\n---\n✅ *Inviato su Discord*");
-            } catch (err: unknown) {
-                const errorMsg =
-                    err instanceof Error ? err.message : String(err);
-                stream.markdown(`\n\n---\n⚠️ *Invio Discord fallito: ${errorMsg}*`);
-            }
-        }
-
-        // Back to standby
-        discordClient?.setPresence("online", "Waiting for commands");
-        return {};
-    } catch (err: unknown) {
-        if (err instanceof vscode.LanguageModelError) {
-            stream.markdown(`⚠️ Language Model error: ${err.message}`);
-        } else {
-            const errorMsg =
-                err instanceof Error ? err.message : String(err);
-            stream.markdown(`⚠️ Error: ${errorMsg}`);
-        }
-        discordClient?.setPresence("online", "Waiting for commands");
-        return {};
-    }
-};
