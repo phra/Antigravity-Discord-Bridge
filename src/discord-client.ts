@@ -5,6 +5,8 @@ import {
     Message,
     Events,
     Partials,
+    ActivityType,
+    PresenceStatusData,
 } from "discord.js";
 import * as vscode from "vscode";
 
@@ -92,6 +94,22 @@ export class DiscordClient {
         if (this.channel) {
             await this.channel.sendTyping();
         }
+    }
+
+    setPresence(status: PresenceStatusData, activity: string): void {
+        this.client.user?.setPresence({
+            status,
+            activities: [
+                {
+                    name: activity,
+                    type: ActivityType.Custom,
+                    state: activity,
+                },
+            ],
+        });
+        this.outputChannel.appendLine(
+            `[Discord] Presence → ${status}: "${activity}"`
+        );
     }
 
     private handleMessage(message: Message): void {

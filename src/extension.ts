@@ -106,6 +106,7 @@ async function connectDiscord(): Promise<void> {
 
     try {
         await discordClient.connect(token);
+        discordClient.setPresence("online", "Waiting for commands");
         vscode.window.showInformationMessage(
             "Antigravity Discord Bridge: Connected!"
         );
@@ -139,6 +140,7 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
     }
 
     processing = true;
+    discordClient?.setPresence("dnd", "Writing code");
     outputChannel.appendLine(
         `[Extension] Processing message from ${msg.author}: ${msg.content}`
     );
@@ -189,6 +191,7 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
         }
     } finally {
         processing = false;
+        discordClient?.setPresence("online", "Waiting for commands");
     }
 }
 
@@ -235,8 +238,9 @@ const chatHandler: vscode.ChatRequestHandler = async (
         return {};
     }
 
-    // Send typing indicator on Discord
+    // Set busy presence and typing indicator
     if (discordClient?.isConnected()) {
+        discordClient.setPresence("dnd", "Writing code");
         discordClient.setTyping().catch(() => { });
     }
 
@@ -273,6 +277,8 @@ const chatHandler: vscode.ChatRequestHandler = async (
             }
         }
 
+        // Back to standby
+        discordClient?.setPresence("online", "Waiting for commands");
         return {};
     } catch (err: unknown) {
         if (err instanceof vscode.LanguageModelError) {
@@ -282,6 +288,7 @@ const chatHandler: vscode.ChatRequestHandler = async (
                 err instanceof Error ? err.message : String(err);
             stream.markdown(`⚠️ Error: ${errorMsg}`);
         }
+        discordClient?.setPresence("online", "Waiting for commands");
         return {};
     }
 };
