@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5865F2"/>
+      <stop offset="100%" stop-color="#3a45c7"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="128" height="128" rx="24" ry="24" fill="url(#bg)"/>
+  <!-- Discord Clyde logo (simplified) -->
+  <g transform="translate(64,62) scale(0.42)" fill="white">
+    <!-- Main body -->
+    <path d="M-55.6-27.8c-4.4-3.4-9.6-5.8-15-6.8l-0.8 1.6c5 1 9.6 3.2 13.6 6.2
+      C-63.6-30.4-70-32.6-77-33.2c-3.6-0.2-7.2-0.2-10.8 0c-7 0.6-13.4 2.8-19.2 6.4
+      c4-3 8.6-5.2 13.6-6.2l-0.8-1.6c-5.4 1-10.6 3.4-15 6.8
+      c-8.2 12.2-13 26.2-14 40.8c5.2 5.8 12.6 9.8 20.6 11.2
+      c1.6-2.2 3-4.6 4.2-7.2c-2.2-0.8-4.4-2-6.4-3.2c0.6-0.4 1-0.8 1.4-1.2
+      c10.4 4.8 22.4 4.8 32.8 0c0.4 0.4 1 0.8 1.4 1.2c-2 1.2-4.2 2.4-6.4 3.2
+      c1.2 2.6 2.6 5 4.2 7.2c8-1.4 15.4-5.4 20.6-11.2
+      C-42.6-1.6-47.4-15.6-55.6-27.8z
+      M-95.2 8.4c-4.2 0-7.6-3.8-7.6-8.6s3.4-8.6 7.6-8.6
+      c4.2 0 7.6 3.8 7.6 8.6S-91 8.4-95.2 8.4z
+      M-66.8 8.4c-4.2 0-7.6-3.8-7.6-8.6s3.4-8.6 7.6-8.6
+      c4.2 0 7.6 3.8 7.6 8.6S-62.6 8.4-66.8 8.4z"/>
+  </g>
+  <!-- Bridge/connection arrows -->
+  <g stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.8">
+    <path d="M20 100 L40 90 L60 95 L80 88 L100 95 L108 100"/>
+    <circle cx="40" cy="90" r="2.5" fill="white"/>
+    <circle cx="80" cy="88" r="2.5" fill="white"/>
+  </g>
+</svg>

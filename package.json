@@ -4,6 +4,7 @@
     "description": "Bridge your VS Code AI chat with a Discord channel — auto-process messages with your IDE's Language Model",
     "version": "0.1.0",
     "publisher": "phra",
+    "icon": "media/icon.png",
     "license": "MIT",
     "repository": {
         "type": "git",
