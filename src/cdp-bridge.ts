@@ -41,135 +41,204 @@ export class CdpBridge {
 
     /**
      * Connect to the Antigravity debugging target.
+     * Tries ALL available CDP targets (not just the first workbench match)
+     * because the chat editor may live in a webview with a different target.
      */
     async connect(): Promise<void> {
-        // 1. Find the workbench target
         const targets = await this.getTargets();
-        const target = targets.find(
-            (t) =>
-                t.url?.includes("workbench") ||
-                t.title?.toLowerCase().includes("workbench")
-        );
 
-        if (!target?.webSocketDebuggerUrl) {
+        // Log ALL targets for diagnostics
+        this.outputChannel.appendLine(`[CDP] Found ${targets.length} targets:`);
+        for (const t of targets) {
+            this.outputChannel.appendLine(
+                `[CDP]   - "${t.title}" type=${t.type} url=${t.url?.substring(0, 120)}`
+            );
+        }
+
+        if (targets.length === 0) {
             throw new Error(
-                `No workbench target found on port ${this.port}. ` +
+                `No CDP targets found on port ${this.port}. ` +
                 `Is Antigravity started with --remote-debugging-port=${this.port}?`
             );
         }
 
-        this.outputChannel.appendLine(
-            `[CDP] Found target: ${target.title} (${target.url})`
-        );
-
-        // 2. Connect via WebSocket
-        this.ws = new WebSocket(target.webSocketDebuggerUrl);
-
-        await new Promise<void>((resolve, reject) => {
-            this.ws!.on("open", resolve);
-            this.ws!.on("error", reject);
+        // Prioritize targets: workbench first, then others (webviews, etc.)
+        const sorted = [...targets].sort((a, b) => {
+            const aWork = a.url?.includes("workbench") || a.title?.toLowerCase().includes("workbench") ? 0 : 1;
+            const bWork = b.url?.includes("workbench") || b.title?.toLowerCase().includes("workbench") ? 0 : 1;
+            return aWork - bWork;
         });
 
-        // 3. Enable Runtime and discover contexts
-        const contexts: Array<{ id: number; origin: string; name: string }> = [];
-        this.ws.on("message", (msg: WebSocket.Data) => {
-            try {
-                const data = JSON.parse(msg.toString());
-                if (data.method === "Runtime.executionContextCreated") {
-                    contexts.push(data.params.context);
-                }
-            } catch { }
-        });
-
-        await this.call("Runtime.enable", {});
-        // Wait for contexts to be discovered
-        await this.sleep(500);
-
-        this.outputChannel.appendLine(
-            `[CDP] Found ${contexts.length} execution contexts`
-        );
-
-        // Log each context for debugging
-        for (const ctx of contexts) {
-            this.outputChannel.appendLine(
-                `[CDP]   Context ${ctx.id}: name="${ctx.name}" origin="${ctx.origin}"`
-            );
-        }
-
-        // 4. Find the context that has the chat editor — with retry logic
-        //    The chat panel may not be open on startup (e.g., Walkthrough page shown)
+        // 1. Try every target, searching all its execution contexts for the chat editor
         const MAX_RETRIES = 10;
         const RETRY_INTERVAL_MS = 3000;
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            for (const ctx of contexts) {
+            for (const target of sorted) {
+                if (!target.webSocketDebuggerUrl) continue;
+
+                let ws: WebSocket | null = null;
+                let tempIdCounter = 1;
+
                 try {
-                    const result = await this.evaluate(
-                        `(() => {
-                            // Primary: Lexical editor inside #cascade
-                            const lexical = [...document.querySelectorAll('#cascade [data-lexical-editor="true"][contenteditable="true"][role="textbox"]')]
-                                .filter(el => el.offsetParent !== null);
-                            if (lexical.length > 0) return { found: true, method: 'lexical-cascade' };
+                    // Connect to this target
+                    ws = new WebSocket(target.webSocketDebuggerUrl);
+                    await new Promise<void>((resolve, reject) => {
+                        const timeout = setTimeout(() => reject(new Error("ws connect timeout")), 5000);
+                        ws!.on("open", () => { clearTimeout(timeout); resolve(); });
+                        ws!.on("error", (e) => { clearTimeout(timeout); reject(e); });
+                    });
 
-                            // Fallback 1: Lexical editor anywhere
-                            const anyLexical = [...document.querySelectorAll('[data-lexical-editor="true"][contenteditable="true"][role="textbox"]')]
-                                .filter(el => el.offsetParent !== null);
-                            if (anyLexical.length > 0) return { found: true, method: 'lexical-any' };
+                    // Discover execution contexts
+                    const contexts: Array<{ id: number; origin: string; name: string }> = [];
+                    ws.on("message", (msg: WebSocket.Data) => {
+                        try {
+                            const data = JSON.parse(msg.toString());
+                            if (data.method === "Runtime.executionContextCreated") {
+                                contexts.push(data.params.context);
+                            }
+                        } catch { }
+                    });
 
-                            // Fallback 2: Any contenteditable textbox (Antigravity may change DOM)
-                            const anyEditable = [...document.querySelectorAll('[contenteditable="true"][role="textbox"]')]
-                                .filter(el => el.offsetParent !== null);
-                            if (anyEditable.length > 0) return { found: true, method: 'contenteditable-textbox' };
+                    // Enable Runtime
+                    await new Promise<void>((resolve, reject) => {
+                        const id = tempIdCounter++;
+                        const handler = (msg: WebSocket.Data) => {
+                            try {
+                                const data = JSON.parse(msg.toString());
+                                if (data.id === id) {
+                                    ws!.off("message", handler);
+                                    data.error ? reject(new Error(data.error.message)) : resolve();
+                                }
+                            } catch { }
+                        };
+                        ws!.on("message", handler);
+                        ws!.send(JSON.stringify({ id, method: "Runtime.enable", params: {} }));
+                    });
 
-                            // Diagnostic info for debugging
-                            return {
-                                found: false,
-                                hasCascade: !!document.getElementById('cascade'),
-                                lexicalCount: document.querySelectorAll('[data-lexical-editor="true"]').length,
-                                editableCount: document.querySelectorAll('[contenteditable="true"]').length,
-                                textboxCount: document.querySelectorAll('[role="textbox"]').length,
-                                bodyLen: document.body?.innerHTML?.length || 0,
-                                title: document.title || ''
-                            };
-                        })()`,
-                        ctx.id
-                    );
+                    await this.sleep(500);
 
-                    const r = result as {
-                        found?: boolean;
-                        method?: string;
-                        hasCascade?: boolean;
-                        lexicalCount?: number;
-                        editableCount?: number;
-                        textboxCount?: number;
-                        bodyLen?: number;
-                        title?: string;
-                    } | null;
-
-                    if (r?.found) {
-                        this.contextId = ctx.id;
+                    if (attempt === 1) {
                         this.outputChannel.appendLine(
-                            `[CDP] Found chat context: ${ctx.id} (${ctx.name || ctx.origin}) via ${r.method} [attempt ${attempt}]`
+                            `[CDP] Target "${target.title}": ${contexts.length} contexts`
                         );
-                        break;
-                    } else if (r && attempt === 1) {
-                        // Log diagnostic info on first attempt only
-                        this.outputChannel.appendLine(
-                            `[CDP]   Context ${ctx.id} diagnostics: cascade=${r.hasCascade}, lexical=${r.lexicalCount}, editable=${r.editableCount}, textbox=${r.textboxCount}, bodyLen=${r.bodyLen}, title="${r.title}"`
-                        );
+                        for (const ctx of contexts) {
+                            this.outputChannel.appendLine(
+                                `[CDP]   Context ${ctx.id}: name="${ctx.name}" origin="${ctx.origin}"`
+                            );
+                        }
+                    }
+
+                    // Search each context for the chat editor
+                    for (const ctx of contexts) {
+                        try {
+                            const evalResult = await new Promise<unknown>((resolve, reject) => {
+                                const id = tempIdCounter++;
+                                const handler = (msg: WebSocket.Data) => {
+                                    try {
+                                        const data = JSON.parse(msg.toString());
+                                        if (data.id === id) {
+                                            ws!.off("message", handler);
+                                            if (data.error) {
+                                                reject(new Error(data.error.message));
+                                            } else if (data.result?.exceptionDetails) {
+                                                reject(new Error(data.result.exceptionDetails.text));
+                                            } else {
+                                                resolve(data.result?.result?.value);
+                                            }
+                                        }
+                                    } catch { }
+                                };
+                                ws!.on("message", handler);
+                                ws!.send(JSON.stringify({
+                                    id,
+                                    method: "Runtime.evaluate",
+                                    params: {
+                                        expression: `(() => {
+                                            // Primary: Lexical editor inside #cascade
+                                            const lexical = [...document.querySelectorAll('#cascade [data-lexical-editor="true"][contenteditable="true"][role="textbox"]')]
+                                                .filter(el => el.offsetParent !== null);
+                                            if (lexical.length > 0) return { found: true, method: 'lexical-cascade' };
+
+                                            // Fallback 1: Lexical editor anywhere
+                                            const anyLexical = [...document.querySelectorAll('[data-lexical-editor="true"][contenteditable="true"][role="textbox"]')]
+                                                .filter(el => el.offsetParent !== null);
+                                            if (anyLexical.length > 0) return { found: true, method: 'lexical-any' };
+
+                                            // Fallback 2: Any contenteditable textbox
+                                            const anyEditable = [...document.querySelectorAll('[contenteditable="true"][role="textbox"]')]
+                                                .filter(el => el.offsetParent !== null);
+                                            if (anyEditable.length > 0) return { found: true, method: 'contenteditable-textbox' };
+
+                                            return {
+                                                found: false,
+                                                hasCascade: !!document.getElementById('cascade'),
+                                                lexicalCount: document.querySelectorAll('[data-lexical-editor="true"]').length,
+                                                editableCount: document.querySelectorAll('[contenteditable="true"]').length,
+                                                textboxCount: document.querySelectorAll('[role="textbox"]').length,
+                                                bodyLen: document.body?.innerHTML?.length || 0,
+                                                title: document.title || ''
+                                            };
+                                        })()`,
+                                        returnByValue: true,
+                                        contextId: ctx.id,
+                                    },
+                                }));
+                            });
+
+                            const r = evalResult as {
+                                found?: boolean;
+                                method?: string;
+                                hasCascade?: boolean;
+                                lexicalCount?: number;
+                                editableCount?: number;
+                                textboxCount?: number;
+                                bodyLen?: number;
+                                title?: string;
+                            } | null;
+
+                            if (r?.found) {
+                                // Found the editor! Adopt this WebSocket as our connection.
+                                this.ws = ws;
+                                this.contextId = ctx.id;
+                                this.idCounter = tempIdCounter;
+                                this.outputChannel.appendLine(
+                                    `[CDP] ✓ Found chat editor in target "${target.title}" ` +
+                                    `context ${ctx.id} (${ctx.name || ctx.origin}) via ${r.method} [attempt ${attempt}]`
+                                );
+                                // Don't close this ws — we're keeping it
+                                ws = null;
+                                break;
+                            } else if (r && attempt === 1) {
+                                this.outputChannel.appendLine(
+                                    `[CDP]   Context ${ctx.id} diagnostics: cascade=${r.hasCascade}, lexical=${r.lexicalCount}, editable=${r.editableCount}, textbox=${r.textboxCount}, bodyLen=${r.bodyLen}, title="${r.title}"`
+                                );
+                            }
+                        } catch (err) {
+                            if (attempt === 1) {
+                                this.outputChannel.appendLine(
+                                    `[CDP]   Context ${ctx.id} eval error: ${err instanceof Error ? err.message : String(err)}`
+                                );
+                            }
+                        }
                     }
                 } catch (err) {
                     if (attempt === 1) {
                         this.outputChannel.appendLine(
-                            `[CDP]   Context ${ctx.id} eval error: ${err instanceof Error ? err.message : String(err)}`
+                            `[CDP]   Target "${target.title}" connect error: ${err instanceof Error ? err.message : String(err)}`
                         );
                     }
+                } finally {
+                    // Close the ws if we didn't adopt it
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.terminate();
+                    }
                 }
+
+                if (this.contextId !== null) break;
             }
 
-            if (this.contextId !== null) {
-                break;
-            }
+            if (this.contextId !== null) break;
 
             if (attempt < MAX_RETRIES) {
                 this.outputChannel.appendLine(
@@ -177,12 +246,21 @@ export class CdpBridge {
                     `Retrying in ${RETRY_INTERVAL_MS / 1000}s... Open a chat in Antigravity if not already open.`
                 );
                 await this.sleep(RETRY_INTERVAL_MS);
+
+                // Re-fetch targets on retry — new webviews may appear
+                const freshTargets = await this.getTargets();
+                sorted.length = 0;
+                sorted.push(...[...freshTargets].sort((a, b) => {
+                    const aWork = a.url?.includes("workbench") || a.title?.toLowerCase().includes("workbench") ? 0 : 1;
+                    const bWork = b.url?.includes("workbench") || b.title?.toLowerCase().includes("workbench") ? 0 : 1;
+                    return aWork - bWork;
+                }));
             }
         }
 
-        if (this.contextId === null) {
+        if (this.contextId === null || this.ws === null) {
             throw new Error(
-                "Could not find the Antigravity chat editor in any execution context. " +
+                "Could not find the Antigravity chat editor in any CDP target or context. " +
                 "Make sure a chat tab is open in Antigravity (not the Walkthrough page)."
             );
         }
