@@ -11,6 +11,28 @@
 - ✂️ **Smart message splitting** — Automatically splits long responses to respect Discord's 2000-character limit
 - 🎨 **VS Code theming** — Chat panel follows your IDE theme
 
+## Installation
+
+### From VS Code Marketplace (coming soon)
+
+Search for **"Antigravity Discord Bridge"** in the Extensions panel (`Ctrl+Shift+X`).
+
+### From .vsix (Releases)
+
+1. Download the latest `.vsix` from [Releases](https://github.com/phra/Antigravity-Discord-Bridge/releases)
+2. In VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX...** → select the file
+
+### From source
+
+```bash
+git clone https://github.com/phra/Antigravity-Discord-Bridge.git
+cd Antigravity-Discord-Bridge
+npm install
+npm run compile
+npx vsce package
+```
+Then install the generated `.vsix` file as described above.
+
 ## Quick Start
 
 ### 1. Create a Discord Bot
