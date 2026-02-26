@@ -12,6 +12,12 @@
 - ✂️ **Smart message splitting** — Automatically splits long responses to respect Discord's 2000-character limit
 - 🎨 **VS Code theming** — Chat and settings panels follow your IDE theme
 
+## Screenshots
+
+| Chat Panel | Settings Panel |
+|:-:|:-:|
+| ![Chat](media/screenshot-chat.png) | ![Settings](media/screenshot-settings.png) |
+
 ## Installation
 
 ### From VS Code Marketplace (coming soon)

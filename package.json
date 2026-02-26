@@ -6,6 +6,7 @@
     "publisher": "phra",
     "icon": "media/icon.png",
     "license": "MIT",
+    "preview": true,
     "repository": {
         "type": "git",
         "url": "https://github.com/phra/Antigravity-Discord-Bridge.git"
@@ -19,13 +20,20 @@
         "chat",
         "bridge",
         "ai",
-        "language-model"
+        "language-model",
+        "cdp",
+        "automation"
     ],
+    "galleryBanner": {
+        "color": "#5865F2",
+        "theme": "dark"
+    },
     "engines": {
         "vscode": "^1.93.0"
     },
     "categories": [
-        "Chat"
+        "Chat",
+        "Other"
     ],
     "activationEvents": [
         "onStartupFinished"
@@ -83,19 +91,23 @@
         }
     },
     "scripts": {
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
+        "compile": "node esbuild.js",
+        "compile:production": "node esbuild.js --production",
+        "watch": "node esbuild.js --watch",
         "lint": "eslint src",
+        "typecheck": "tsc --noEmit",
+        "prepackage": "npm run compile:production",
         "package": "vsce package"
     },
     "dependencies": {
-        "@types/ws": "^8.18.1",
         "discord.js": "^14.16.0",
         "ws": "^8.19.0"
     },
     "devDependencies": {
         "@types/vscode": "^1.93.0",
+        "@types/ws": "^8.18.1",
         "@vscode/vsce": "^3.7.1",
+        "esbuild": "^0.25.1",
         "typescript": "^5.5.0"
     }
 }

@@ -1,5 +1,26 @@
+# Source files (bundled by esbuild)
 src/
-.gitignore
+esbuild.js
 tsconfig.json
+
+# Dev files
+.gitignore
+.github/
+
+# TypeScript artifacts (not needed — esbuild produces dist/extension.js)
 *.map
 *.d.ts
+dist/*.d.ts
+dist/*.d.ts.map
+dist/*.js.map
+
+# Old tsc per-file outputs (esbuild bundles into single file)
+dist/cdp-bridge.*
+dist/chat-panel.*
+dist/discord-client.*
+
+# Node modules (bundled by esbuild)
+node_modules/
+
+# Build artifacts
+*.vsix
