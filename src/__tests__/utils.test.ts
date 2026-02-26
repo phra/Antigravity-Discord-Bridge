@@ -76,6 +76,7 @@ describe('isAcceptButton', () => {
     it('matches buttons with suffixes', () => {
         expect(isAcceptButton('Accept all')).toBe(true);
         expect(isAcceptButton('Accept All Changes')).toBe(true);
+        expect(isAcceptButton('RunAlt+⏎')).toBe(true);        // no space!
         expect(isAcceptButton('Run Alt+↵')).toBe(true);
         expect(isAcceptButton('Run All+1')).toBe(true);
         expect(isAcceptButton('Run command')).toBe(true);

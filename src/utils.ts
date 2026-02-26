@@ -44,12 +44,13 @@ export function isNoiseLine(line: string): boolean {
  * Used by the CDP-injected auto-accept interval.
  */
 export function isAcceptButton(text: string): boolean {
-    // Only match actual APPROVAL buttons, not mode toggles
+    // Exclude mode toggles first
+    if (text === 'Always run' || text.startsWith('Always run')) return false;
+    // Match actual approval buttons
     if (text === 'Accept' || text === 'Run') return true;
-    if (text.startsWith('Accept')) return true;  // "Accept all", "Accept All Changes"
-    if (text.startsWith('Run ')) return true;  // "Run Alt+↵", "Run All+1"
+    if (text.startsWith('Accept')) return true;  // "Accept all"
+    if (text.startsWith('Run')) return true;  // "RunAlt+⏎", "Run All+1"
     if (text.startsWith('Always Allow')) return true;
-    // NOTE: "Always run" is a mode toggle, NOT an approval button
     return false;
 }
 
