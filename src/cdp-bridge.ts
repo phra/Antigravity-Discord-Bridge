@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import http from "http";
 import * as vscode from "vscode";
+import { isNoiseLine } from "./utils";
 
 /** Result from a CDP Runtime.evaluate call */
 interface EvalResult {
@@ -656,7 +657,7 @@ export class CdpBridge {
         const filtered = newLines.filter(line => {
             if (line.length < 3) return false;
             if (line === userMessage?.trim()) return false;
-            if (this.isNoiseLine(line)) return false;
+            if (isNoiseLine(line)) return false;
             return true;
         });
 
@@ -1061,37 +1062,7 @@ export class CdpBridge {
         return result?.result?.value;
     }
 
-    /**
-     * Detect lines that are debug/diagnostic noise — not part of the AI response.
-     * Matches CDP log lines, JSON-like metadata, DOM diagnostics, etc.
-     */
-    private isNoiseLine(line: string): boolean {
-        // CDP log prefixes
-        if (/^\[CDP\]/.test(line)) return true;
-        if (/^\[Stream\]/.test(line)) return true;
-        if (/^\[Discord\]/.test(line)) return true;
-        if (/^\[Extension\]/.test(line)) return true;
-
-        // JSON-like metadata properties (e.g. '"classes": "lucide..."')
-        if (/^"(classes|parentTag|parentAriaLabel|tag|role|lexical|textLen|visible|parentId|parentClass|grandparentId|hasSvg|ariaLabel|disabled)"\s*:/.test(line)) return true;
-
-        // CDP status messages
-        if (/^Ctrl\+I|^Ctrl\+L/.test(line)) return true;
-        if (/^Pre-snapshot:|^Post-snapshot:|^Diff result:/.test(line)) return true;
-        if (/^Agent is processing|^Agent finished|^Agent never became/.test(line)) return true;
-        if (/^Message injected|^Focused agent panel/.test(line)) return true;
-        if (/^DOM discovery/.test(line)) return true;
-        if (/^Found chat editor|^Still waiting for agent/.test(line)) return true;
-
-        // SVG/button diagnostics from discoverDom
-        if (/^"svgs"\s*:\s*\[/.test(line)) return true;
-        if (/^\{$|^\}$|^\]$|^\[$/.test(line)) return true;
-
-        // Thought/thinking markers that are UI chrome, not content
-        if (/^Thought for/.test(line)) return true;
-
-        return false;
-    }
+    // isNoiseLine is now in utils.ts
 
     private sleep(ms: number): Promise<void> {
         return new Promise((r) => setTimeout(r, ms));

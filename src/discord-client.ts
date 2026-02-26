@@ -11,6 +11,7 @@ import {
     ThreadAutoArchiveDuration,
 } from "discord.js";
 import * as vscode from "vscode";
+import { splitMessage as utilSplitMessage, findSplitPoint as utilFindSplitPoint } from "./utils";
 
 export interface DiscordMessage {
     author: string;
@@ -170,53 +171,11 @@ export class DiscordClient {
         }
     }
 
-    /**
-     * Split a message into chunks that fit Discord's 2000 char limit.
-     * Preserves code blocks intact when possible.
-     */
     private splitMessage(text: string, maxLen = 2000): string[] {
-        if (text.length <= maxLen) {
-            return [text];
-        }
-
-        const chunks: string[] = [];
-        let remaining = text;
-
-        while (remaining.length > 0) {
-            if (remaining.length <= maxLen) {
-                chunks.push(remaining);
-                break;
-            }
-
-            // Try to split at a code block boundary
-            let splitIdx = this.findSplitPoint(remaining, maxLen);
-            chunks.push(remaining.substring(0, splitIdx));
-            remaining = remaining.substring(splitIdx);
-        }
-
-        return chunks;
+        return utilSplitMessage(text, maxLen);
     }
 
-    /**
-     * Find the best point to split a message:
-     * 1. Try to split at a double newline (paragraph break)
-     * 2. Try to split at a single newline
-     * 3. Fall back to maxLen
-     */
     private findSplitPoint(text: string, maxLen: number): number {
-        // Look for a paragraph break near the limit
-        const doubleNewline = text.lastIndexOf("\n\n", maxLen);
-        if (doubleNewline > maxLen * 0.5) {
-            return doubleNewline + 2;
-        }
-
-        // Look for a single newline
-        const singleNewline = text.lastIndexOf("\n", maxLen);
-        if (singleNewline > maxLen * 0.3) {
-            return singleNewline + 1;
-        }
-
-        // Hard split
-        return maxLen;
+        return utilFindSplitPoint(text, maxLen);
     }
 }
