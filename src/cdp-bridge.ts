@@ -368,7 +368,14 @@ export class CdpBridge {
     async chatSnapshot(): Promise<{ count: number; lastText: string }> {
         const result = await this.evaluate(
             `(() => {
-                const text = document.body?.innerText || '';
+                // Scope to the chat conversation container only, NOT the full workbench.
+                // This avoids capturing Output Channel, file explorer, status bar, etc.
+                const chatContainer = document.querySelector('#cascade')
+                    || document.querySelector('[class*="chat-message"]')?.closest('[class*="scroll"]')
+                    || document.querySelector('[role="log"]')
+                    || document.querySelector('[class*="conversation"]');
+                const source = chatContainer || document.body;
+                const text = source?.innerText || '';
                 const lines = text.split('\\n').filter(l => l.trim().length > 0);
                 return {
                     count: lines.length,
@@ -639,10 +646,11 @@ export class CdpBridge {
             .map(l => l.trim())
             .filter(l => l.length > 0 && !preLines.has(l));
 
-        // Filter out noise
+        // Filter out noise: debug metadata, CDP logs, JSON-like diagnostics
         const filtered = newLines.filter(line => {
             if (line.length < 3) return false;
             if (line === userMessage?.trim()) return false;
+            if (this.isNoiseLine(line)) return false;
             return true;
         });
 
@@ -744,6 +752,38 @@ export class CdpBridge {
         }
 
         return result?.result?.value;
+    }
+
+    /**
+     * Detect lines that are debug/diagnostic noise — not part of the AI response.
+     * Matches CDP log lines, JSON-like metadata, DOM diagnostics, etc.
+     */
+    private isNoiseLine(line: string): boolean {
+        // CDP log prefixes
+        if (/^\[CDP\]/.test(line)) return true;
+        if (/^\[Stream\]/.test(line)) return true;
+        if (/^\[Discord\]/.test(line)) return true;
+        if (/^\[Extension\]/.test(line)) return true;
+
+        // JSON-like metadata properties (e.g. '"classes": "lucide..."')
+        if (/^"(classes|parentTag|parentAriaLabel|tag|role|lexical|textLen|visible|parentId|parentClass|grandparentId|hasSvg|ariaLabel|disabled)"\s*:/.test(line)) return true;
+
+        // CDP status messages
+        if (/^Ctrl\+I|^Ctrl\+L/.test(line)) return true;
+        if (/^Pre-snapshot:|^Post-snapshot:|^Diff result:/.test(line)) return true;
+        if (/^Agent is processing|^Agent finished|^Agent never became/.test(line)) return true;
+        if (/^Message injected|^Focused agent panel/.test(line)) return true;
+        if (/^DOM discovery/.test(line)) return true;
+        if (/^Found chat editor|^Still waiting for agent/.test(line)) return true;
+
+        // SVG/button diagnostics from discoverDom
+        if (/^"svgs"\s*:\s*\[/.test(line)) return true;
+        if (/^\{$|^\}$|^\]$|^\[$/.test(line)) return true;
+
+        // Thought/thinking markers that are UI chrome, not content
+        if (/^Thought for/.test(line)) return true;
+
+        return false;
     }
 
     private sleep(ms: number): Promise<void> {

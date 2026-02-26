@@ -218,14 +218,6 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             outputChannel.appendLine(`[CDP] Could not focus agent panel: ${err}`);
         }
 
-        // 0b. Run DOM discovery to understand the chat UI structure
-        try {
-            const domInfo = await cdpBridge!.discoverDom();
-            outputChannel.appendLine(`[CDP] DOM discovery:\n${domInfo}`);
-        } catch (err) {
-            outputChannel.appendLine(`[CDP] DOM discovery failed: ${err}`);
-        }
-
         // 1. Take a pre-snapshot of the chat
         const preSnapshot = await cdpBridge!.chatSnapshot();
         outputChannel.appendLine(
@@ -267,27 +259,10 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             }
         }, 5000);
 
-        // 5. Wait for the agent to respond, streaming reasoning to thread
+        // 5. Wait for the agent to respond (no intermediate streaming — too noisy)
         try {
-            const streamCallback = reasoningThread
-                ? async (chunk: string) => {
-                    try {
-                        if (discordClient?.isConnected() && reasoningThread) {
-                            await discordClient.sendToThread(reasoningThread, chunk);
-                            outputChannel.appendLine(
-                                `[Stream] Sent ${chunk.length} chars to thread`
-                            );
-                        }
-                    } catch (e) {
-                        outputChannel.appendLine(
-                            `[Stream] Error sending to thread: ${e instanceof Error ? e.message : String(e)}`
-                        );
-                    }
-                }
-                : undefined;
-
             const response = await cdpBridge!.waitForResponse(
-                preSnapshot, msg.content, streamCallback
+                preSnapshot, msg.content
             );
             clearInterval(typingInterval);
 
@@ -309,7 +284,7 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             chatPanel.setTyping("assistant", false);
             chatPanel.addMessage("assistant", "Antigravity", response);
 
-            // Send final response to main channel (NOT thread)
+            // Send final response to main channel
             if (discordClient?.isConnected() && response.length > 0) {
                 await discordClient.sendMessage(response);
                 outputChannel.appendLine(
