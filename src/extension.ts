@@ -233,6 +233,17 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             `[CDP] Message injected (${(sendResult as { method?: string }).method || "unknown"})`
         );
 
+        // 2b. Start auto-accept if enabled
+        const config = vscode.workspace.getConfiguration("antigravity-discord");
+        const autoAccept = config.get<boolean>("autoAccept", true);
+        if (autoAccept && cdpBridge?.isConnected()) {
+            try {
+                await cdpBridge.startAutoAccept();
+            } catch (err) {
+                outputChannel.appendLine(`[CDP] Auto-accept start failed: ${err}`);
+            }
+        }
+
         // 3. Create a Discord thread for reasoning/thinking stream
         let reasoningThread: import("discord.js").ThreadChannel | null = null;
         try {
@@ -312,6 +323,10 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
                 .catch(() => { });
         }
     } finally {
+        // Always stop auto-accept
+        if (cdpBridge?.isConnected()) {
+            cdpBridge.stopAutoAccept().catch(() => { });
+        }
         processing = false;
         discordClient?.setPresence("online", "Waiting for commands");
     }

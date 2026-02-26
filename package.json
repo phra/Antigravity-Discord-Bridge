@@ -73,6 +73,11 @@
                     "type": "number",
                     "default": 9000,
                     "description": "Antigravity remote debugging port (--remote-debugging-port)"
+                },
+                "antigravity-discord.autoAccept": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Auto-click Accept/Run/Always Allow buttons during Discord message processing"
                 }
             }
         }

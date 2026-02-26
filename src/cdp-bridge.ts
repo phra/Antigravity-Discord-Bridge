@@ -680,6 +680,65 @@ export class CdpBridge {
         return "";
     }
 
+    // ── Auto-accept ─────────────────────────────────────────
+
+    /**
+     * Inject an auto-accept interval into the chat context.
+     * Finds and clicks Accept / Run / Always Allow buttons every 1.5s.
+     * Scrolls the button into view before clicking.
+     */
+    async startAutoAccept(): Promise<void> {
+        if (!this.isConnected()) return;
+
+        await this.evaluate(
+            `(() => {
+                // Guard against double-injection
+                if (window.__autoAcceptInterval) return;
+
+                window.__autoAcceptInterval = setInterval(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const acceptBtn = buttons.find(b => {
+                        const text = (b.textContent || '').trim();
+                        return text === 'Accept'
+                            || text === 'Run'
+                            || text === 'Always Allow'
+                            || text.startsWith('Accept')
+                            || text.startsWith('Run ')
+                            || text.startsWith('Always Allow');
+                    });
+                    if (acceptBtn && !acceptBtn.disabled) {
+                        acceptBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        acceptBtn.click();
+                    }
+                }, 1500);
+            })()`,
+            this.contextId!,
+            false
+        );
+
+        this.outputChannel.appendLine("[CDP] Auto-accept started");
+    }
+
+    /**
+     * Stop the auto-accept interval.
+     */
+    async stopAutoAccept(): Promise<void> {
+        if (!this.isConnected()) return;
+
+        await this.evaluate(
+            `(() => {
+                if (window.__autoAcceptInterval) {
+                    clearInterval(window.__autoAcceptInterval);
+                    window.__autoAcceptInterval = null;
+                }
+            })()`,
+            this.contextId!,
+            false
+        );
+
+        this.outputChannel.appendLine("[CDP] Auto-accept stopped");
+    }
+
     // ── Private helpers ──────────────────────────────────────
 
     private getTargets(): Promise<CdpTarget[]> {
