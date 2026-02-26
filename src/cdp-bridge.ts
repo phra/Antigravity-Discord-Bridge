@@ -680,19 +680,174 @@ export class CdpBridge {
         return "";
     }
 
+    /**
+     * Extract the last assistant response as Discord-compatible markdown.
+     * Finds the last message container in the chat, gets its HTML,
+     * and converts it to markdown preserving code blocks, bold, italic, etc.
+     * Returns empty string if no response is found.
+     */
+    async extractLastResponseMarkdown(): Promise<string> {
+        if (!this.isConnected()) return "";
+
+        const result = await this.evaluate(
+            `(() => {
+                // ── Lightweight HTML → Discord markdown ──
+                function htmlToMarkdown(el) {
+                    let md = '';
+                    for (const node of el.childNodes) {
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            md += node.textContent;
+                            continue;
+                        }
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        const tag = node.tagName;
+
+                        // Code blocks (pre > code)
+                        if (tag === 'PRE') {
+                            const code = node.querySelector('code');
+                            const text = (code || node).textContent || '';
+                            // Try to detect language from class
+                            const langClass = (code?.className || '').match(/language-(\\w+)/);
+                            const lang = langClass ? langClass[1] : '';
+                            md += '\\n\\\`\\\`\\\`' + lang + '\\n' + text.trimEnd() + '\\n\\\`\\\`\\\`\\n';
+                            continue;
+                        }
+
+                        // Inline code
+                        if (tag === 'CODE') {
+                            md += '\\\`' + (node.textContent || '') + '\\\`';
+                            continue;
+                        }
+
+                        // Bold
+                        if (tag === 'STRONG' || tag === 'B') {
+                            md += '**' + htmlToMarkdown(node) + '**';
+                            continue;
+                        }
+
+                        // Italic
+                        if (tag === 'EM' || tag === 'I') {
+                            md += '*' + htmlToMarkdown(node) + '*';
+                            continue;
+                        }
+
+                        // Headers
+                        if (/^H[1-6]$/.test(tag)) {
+                            const level = parseInt(tag[1]);
+                            md += '\\n' + '#'.repeat(level) + ' ' + htmlToMarkdown(node) + '\\n';
+                            continue;
+                        }
+
+                        // Lists
+                        if (tag === 'UL' || tag === 'OL') {
+                            const items = node.querySelectorAll(':scope > li');
+                            items.forEach((li, i) => {
+                                const prefix = tag === 'OL' ? (i+1) + '. ' : '- ';
+                                md += prefix + htmlToMarkdown(li).trim() + '\\n';
+                            });
+                            md += '\\n';
+                            continue;
+                        }
+                        if (tag === 'LI') {
+                            md += htmlToMarkdown(node);
+                            continue;
+                        }
+
+                        // Links
+                        if (tag === 'A') {
+                            const href = node.getAttribute('href') || '';
+                            md += '[' + htmlToMarkdown(node) + '](' + href + ')';
+                            continue;
+                        }
+
+                        // Paragraphs, divs — recurse + newline
+                        if (tag === 'P' || tag === 'DIV') {
+                            md += htmlToMarkdown(node) + '\\n';
+                            continue;
+                        }
+
+                        // BR
+                        if (tag === 'BR') {
+                            md += '\\n';
+                            continue;
+                        }
+
+                        // Blockquote
+                        if (tag === 'BLOCKQUOTE') {
+                            const lines = htmlToMarkdown(node).split('\\n');
+                            md += lines.map(l => '> ' + l).join('\\n') + '\\n';
+                            continue;
+                        }
+
+                        // HR
+                        if (tag === 'HR') {
+                            md += '\\n---\\n';
+                            continue;
+                        }
+
+                        // Default: recurse
+                        md += htmlToMarkdown(node);
+                    }
+                    return md;
+                }
+
+                // Find the chat container
+                const chatContainer = document.querySelector('#cascade')
+                    || document.querySelector('[class*="chat-message"]')?.closest('[class*="scroll"]')
+                    || document.querySelector('[role="log"]')
+                    || document.querySelector('[class*="conversation"]');
+                if (!chatContainer) return '';
+
+                // Try to find structured message containers
+                // Look for the LAST message block that is an assistant response
+                const allMsgBlocks = chatContainer.querySelectorAll(
+                    '[class*="message"], [class*="response"], [class*="assistant"], [class*="reply"], [data-role="assistant"]'
+                );
+
+                // Try the last block first
+                if (allMsgBlocks.length > 0) {
+                    const lastBlock = allMsgBlocks[allMsgBlocks.length - 1];
+                    const md = htmlToMarkdown(lastBlock);
+                    if (md.trim().length > 0) return md.trim();
+                }
+
+                // Fallback: find the last large text block
+                // Get all direct children and find the last one with substantial content
+                const children = Array.from(chatContainer.children);
+                for (let i = children.length - 1; i >= 0; i--) {
+                    const child = children[i];
+                    if ((child.textContent || '').trim().length > 20) {
+                        const md = htmlToMarkdown(child);
+                        if (md.trim().length > 20) return md.trim();
+                    }
+                }
+
+                return '';
+            })()`,
+            this.contextId!
+        );
+
+        const md = (result as string) || "";
+
+        // Clean up excessive newlines
+        return md
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+
     // ── Auto-accept ─────────────────────────────────────────
 
     /**
-     * Inject an auto-accept interval into the chat context.
-     * Finds and clicks Accept / Run / Always Allow buttons every 1.5s.
-     * Scrolls the button into view before clicking.
+     * Inject an auto-accept interval into the TOP-LEVEL page context.
+     * The Accept/Run/Always Allow buttons are in VS Code's main UI,
+     * NOT inside the chat webview — so we must NOT use this.contextId.
      */
     async startAutoAccept(): Promise<void> {
         if (!this.isConnected()) return;
 
-        await this.evaluate(
-            `(() => {
-                // Guard against double-injection
+        // Evaluate WITHOUT contextId → runs in default/top-level page context
+        await this.call("Runtime.evaluate", {
+            expression: `(() => {
                 if (window.__autoAcceptInterval) return;
 
                 window.__autoAcceptInterval = setInterval(() => {
@@ -712,29 +867,27 @@ export class CdpBridge {
                     }
                 }, 1500);
             })()`,
-            this.contextId!,
-            false
-        );
+            returnByValue: true,
+        });
 
-        this.outputChannel.appendLine("[CDP] Auto-accept started");
+        this.outputChannel.appendLine("[CDP] Auto-accept started (top-level context)");
     }
 
     /**
-     * Stop the auto-accept interval.
+     * Stop the auto-accept interval in the top-level page context.
      */
     async stopAutoAccept(): Promise<void> {
         if (!this.isConnected()) return;
 
-        await this.evaluate(
-            `(() => {
+        await this.call("Runtime.evaluate", {
+            expression: `(() => {
                 if (window.__autoAcceptInterval) {
                     clearInterval(window.__autoAcceptInterval);
                     window.__autoAcceptInterval = null;
                 }
             })()`,
-            this.contextId!,
-            false
-        );
+            returnByValue: true,
+        });
 
         this.outputChannel.appendLine("[CDP] Auto-accept stopped");
     }

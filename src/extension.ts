@@ -314,10 +314,31 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             chatPanel.addMessage("assistant", "Antigravity", response);
 
             // Send final response to main channel
+            // Try markdown-formatted extraction first, fall back to plain text diff
             if (discordClient?.isConnected() && response.length > 0) {
-                await discordClient.sendMessage(response);
+                let discordResponse = response;
+
+                try {
+                    const mdResponse = await cdpBridge!.extractLastResponseMarkdown();
+                    if (mdResponse.length > 0) {
+                        discordResponse = mdResponse;
+                        outputChannel.appendLine(
+                            `[Extension] Using markdown-formatted response (${mdResponse.length} chars)`
+                        );
+                    } else {
+                        outputChannel.appendLine(
+                            `[Extension] Markdown extraction empty, using plain text diff`
+                        );
+                    }
+                } catch (mdErr) {
+                    outputChannel.appendLine(
+                        `[Extension] Markdown extraction failed, using plain text: ${mdErr}`
+                    );
+                }
+
+                await discordClient.sendMessage(discordResponse);
                 outputChannel.appendLine(
-                    `[Extension] Final response sent to Discord channel (${response.length} chars)`
+                    `[Extension] Final response sent to Discord channel (${discordResponse.length} chars)`
                 );
             }
 
