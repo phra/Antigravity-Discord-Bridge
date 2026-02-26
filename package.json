@@ -1,7 +1,7 @@
 {
     "name": "antigravity-discord",
     "displayName": "Antigravity Discord Bridge",
-    "description": "Bridge your VS Code AI chat with a Discord channel — auto-process messages with your IDE's Language Model",
+    "description": "Bridge your VS Code AI chat with a Discord channel — messages are processed by the Language Model in your IDE and responses posted back in real-time",
     "version": "0.1.0",
     "publisher": "phra",
     "icon": "media/icon.png",
@@ -21,8 +21,8 @@
         "bridge",
         "ai",
         "language-model",
-        "cdp",
-        "automation"
+        "copilot",
+        "gemini"
     ],
     "galleryBanner": {
         "color": "#5865F2",
