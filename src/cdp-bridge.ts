@@ -25,6 +25,7 @@ interface CdpTarget {
 export class CdpBridge {
     private ws: WebSocket | null = null;
     private contextId: number | null = null;
+    private allContextIds: number[] = [];
     private idCounter = 1;
     private port: number;
     private outputChannel: vscode.OutputChannel;
@@ -201,10 +202,15 @@ export class CdpBridge {
                                 // Found the editor! Adopt this WebSocket as our connection.
                                 this.ws = ws;
                                 this.contextId = ctx.id;
+                                // Save ALL context IDs on this target for auto-accept injection
+                                this.allContextIds = contexts.map(c => c.id);
                                 this.idCounter = tempIdCounter;
                                 this.outputChannel.appendLine(
                                     `[CDP] ✓ Found chat editor in target "${target.title}" ` +
                                     `context ${ctx.id} (${ctx.name || ctx.origin}) via ${r.method} [attempt ${attempt}]`
+                                );
+                                this.outputChannel.appendLine(
+                                    `[CDP]   All contexts saved for auto-accept: [${this.allContextIds.join(', ')}]`
                                 );
                                 // Don't close this ws — we're keeping it
                                 ws = null;
@@ -837,59 +843,148 @@ export class CdpBridge {
 
     // ── Auto-accept ─────────────────────────────────────────
 
+    private autoAcceptScript = `(() => {
+        if (window.__autoAcceptInterval) return 'already_running';
+
+        function findAllButtons(root) {
+            let buttons = [];
+            try {
+                buttons = buttons.concat(Array.from(root.querySelectorAll('button')));
+                const iframes = root.querySelectorAll('iframe');
+                for (const iframe of iframes) {
+                    try {
+                        if (iframe.contentDocument) {
+                            buttons = buttons.concat(findAllButtons(iframe.contentDocument));
+                        }
+                    } catch(e) {}
+                }
+                const allElements = root.querySelectorAll('*');
+                for (const el of allElements) {
+                    if (el.shadowRoot) {
+                        buttons = buttons.concat(findAllButtons(el.shadowRoot));
+                    }
+                }
+            } catch(e) {}
+            return buttons;
+        }
+
+        function isAcceptButton(text) {
+            return text === 'Accept'
+                || text === 'Run'
+                || text === 'Always Allow'
+                || text.startsWith('Accept')
+                || text.startsWith('Run ')
+                || text.startsWith('Always Allow');
+        }
+
+        let scanCount = 0;
+        window.__autoAcceptInterval = setInterval(() => {
+            scanCount++;
+            const buttons = findAllButtons(document);
+
+            if (scanCount % 5 === 1) {
+                const btnTexts = buttons.slice(0, 30).map(b => (b.textContent || '').trim().substring(0, 50));
+                console.log('[AutoAccept] Scan #' + scanCount + ': ' + buttons.length + ' buttons. Sample: ' + JSON.stringify(btnTexts));
+            }
+
+            const acceptBtn = buttons.find(b => {
+                const text = (b.textContent || '').trim();
+                return isAcceptButton(text);
+            });
+
+            if (acceptBtn && !acceptBtn.disabled) {
+                const text = (acceptBtn.textContent || '').trim();
+                console.log('[AutoAccept] CLICKING: "' + text + '"');
+                acceptBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                acceptBtn.click();
+            }
+        }, 1500);
+
+        return 'started';
+    })()`;
+
+    private autoAcceptStopScript = `(() => {
+        if (window.__autoAcceptInterval) {
+            clearInterval(window.__autoAcceptInterval);
+            window.__autoAcceptInterval = null;
+            return 'stopped';
+        }
+        return 'not_running';
+    })()`;
+
     /**
-     * Inject an auto-accept interval into the TOP-LEVEL page context.
-     * The Accept/Run/Always Allow buttons are in VS Code's main UI,
-     * NOT inside the chat webview — so we must NOT use this.contextId.
+     * Inject the auto-accept interval into ALL execution contexts.
+     * We inject into every context because the Accept/Run buttons may be
+     * rendered in the main VS Code workbench context, not the chat webview.
      */
     async startAutoAccept(): Promise<void> {
         if (!this.isConnected()) return;
 
-        // Evaluate WITHOUT contextId → runs in default/top-level page context
-        await this.call("Runtime.evaluate", {
-            expression: `(() => {
-                if (window.__autoAcceptInterval) return;
+        // Enable console API events so we can capture debug output
+        await this.call("Runtime.enable", {}).catch(() => { });
 
-                window.__autoAcceptInterval = setInterval(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    const acceptBtn = buttons.find(b => {
-                        const text = (b.textContent || '').trim();
-                        return text === 'Accept'
-                            || text === 'Run'
-                            || text === 'Always Allow'
-                            || text.startsWith('Accept')
-                            || text.startsWith('Run ')
-                            || text.startsWith('Always Allow');
-                    });
-                    if (acceptBtn && !acceptBtn.disabled) {
-                        acceptBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
-                        acceptBtn.click();
+        // Listen for console.log from the auto-accept script
+        this.ws?.on("message", (raw: Buffer) => {
+            try {
+                const data = JSON.parse(raw.toString());
+                if (data.method === "Runtime.consoleAPICalled" && data.params?.type === "log") {
+                    const args = data.params.args || [];
+                    const text = args.map((a: { value?: string }) => a.value || "").join(" ");
+                    if (text.startsWith("[AutoAccept]")) {
+                        this.outputChannel.appendLine(`[CDP] ${text}`);
                     }
-                }, 1500);
-            })()`,
-            returnByValue: true,
+                }
+            } catch { }
         });
 
-        this.outputChannel.appendLine("[CDP] Auto-accept started (top-level context)");
+        // Inject into ALL contexts
+        const results: string[] = [];
+        for (const ctxId of this.allContextIds) {
+            try {
+                const res = await this.evaluate(this.autoAcceptScript, ctxId, false);
+                results.push(`ctx${ctxId}=${res}`);
+            } catch (err) {
+                results.push(`ctx${ctxId}=error`);
+            }
+        }
+
+        // Also try without contextId (default context)
+        try {
+            const res = await this.call("Runtime.evaluate", {
+                expression: this.autoAcceptScript,
+                returnByValue: true,
+            });
+            results.push(`default=${(res as EvalResult)?.result?.value || 'ok'}`);
+        } catch {
+            results.push("default=error");
+        }
+
+        this.outputChannel.appendLine(
+            `[CDP] Auto-accept injected into ${this.allContextIds.length} contexts + default: [${results.join(', ')}]`
+        );
     }
 
     /**
-     * Stop the auto-accept interval in the top-level page context.
+     * Stop the auto-accept interval in ALL execution contexts.
      */
     async stopAutoAccept(): Promise<void> {
         if (!this.isConnected()) return;
 
-        await this.call("Runtime.evaluate", {
-            expression: `(() => {
-                if (window.__autoAcceptInterval) {
-                    clearInterval(window.__autoAcceptInterval);
-                    window.__autoAcceptInterval = null;
-                }
-            })()`,
-            returnByValue: true,
-        });
+        for (const ctxId of this.allContextIds) {
+            try {
+                await this.evaluate(this.autoAcceptStopScript, ctxId, false);
+            } catch { }
+        }
 
-        this.outputChannel.appendLine("[CDP] Auto-accept stopped");
+        // Also stop in default context
+        try {
+            await this.call("Runtime.evaluate", {
+                expression: this.autoAcceptStopScript,
+                returnByValue: true,
+            });
+        } catch { }
+
+        this.outputChannel.appendLine("[CDP] Auto-accept stopped in all contexts");
     }
 
     // ── Private helpers ──────────────────────────────────────
