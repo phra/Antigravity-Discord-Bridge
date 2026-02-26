@@ -772,44 +772,53 @@ export class CdpBridge {
     // Uses String.fromCharCode to avoid backtick escaping issues
     // across template literal / evaluate boundary.
     private htmlToMarkdownScript = [
-    'const BT = String.fromCharCode(96);',
-    'const FENCE = BT + BT + BT;',
-    'const NL = String.fromCharCode(10);',
-    'function htmlToMarkdown(el) {',
-    '  let md = "";',
-    '  for (const node of el.childNodes) {',
-    '    if (node.nodeType === Node.TEXT_NODE) { md += node.textContent; continue; }',
-    '    if (node.nodeType !== Node.ELEMENT_NODE) continue;',
-    '    const tag = node.tagName;',
-    '    if (tag==="STYLE"||tag==="SCRIPT"||tag==="LINK"||tag==="SVG"||tag==="NAV"||tag==="BUTTON"||tag==="IMG") continue;',
-    '    if (tag === "PRE") {',
-    '      const code = node.querySelector("code");',
-    '      const text = (code || node).textContent || "";',
-    '      const lc = (code?.className || "").match(/language-(\\w+)/);',
-    '      const lang = lc ? lc[1] : "";',
-    '      md += NL + FENCE + lang + NL + text.trimEnd() + NL + FENCE + NL;',
-    '      continue;',
-    '    }',
-    '    if (tag === "CODE") { md += BT + (node.textContent || "") + BT; continue; }',
-    '    if (tag === "STRONG" || tag === "B") { md += "**" + htmlToMarkdown(node) + "**"; continue; }',
-    '    if (tag === "EM" || tag === "I") { md += "*" + htmlToMarkdown(node) + "*"; continue; }',
-    '    if (/^H[1-6]$/.test(tag)) { md += NL + "#".repeat(parseInt(tag[1])) + " " + htmlToMarkdown(node) + NL; continue; }',
-    '    if (tag === "UL" || tag === "OL") {',
-    '      node.querySelectorAll(":scope > li").forEach((li, i) => {',
-    '        md += (tag === "OL" ? (i+1) + ". " : "- ") + htmlToMarkdown(li).trim() + NL;',
-    '      }); md += NL; continue;',
-    '    }',
-    '    if (tag === "LI") { md += htmlToMarkdown(node); continue; }',
-    '    if (tag === "A") { md += "[" + htmlToMarkdown(node) + "](" + (node.getAttribute("href")||"") + ")"; continue; }',
-    '    if (tag === "P" || tag === "DIV") { md += htmlToMarkdown(node) + NL; continue; }',
-    '    if (tag === "BR") { md += NL; continue; }',
-    '    if (tag === "BLOCKQUOTE") { md += htmlToMarkdown(node).split(NL).map(l => "> " + l).join(NL) + NL; continue; }',
-    '    if (tag === "HR") { md += NL + "---" + NL; continue; }',
-    '    md += htmlToMarkdown(node);',
-    '  }',
-    '  return md;',
-    '}',
-].join('\n');
+        'const BT = String.fromCharCode(96);',
+        'const FENCE = BT + BT + BT;',
+        'const NL = String.fromCharCode(10);',
+        'function htmlToMarkdown(el) {',
+        '  let md = "";',
+        '  for (const node of el.childNodes) {',
+        '    if (node.nodeType === Node.TEXT_NODE) { md += node.textContent; continue; }',
+        '    if (node.nodeType !== Node.ELEMENT_NODE) continue;',
+        '    const tag = node.tagName;',
+        '    if (tag==="STYLE"||tag==="SCRIPT"||tag==="LINK"||tag==="SVG"||tag==="NAV"||tag==="BUTTON"||tag==="IMG") continue;',
+        '    if (tag === "PRE") {',
+        '      const code = node.querySelector("code");',
+        '      const src = code || node;',
+        '      const lc = (code?.className || "").match(/language-(\\w+)/);',
+        '      const lang = lc ? lc[1] : "";',
+        '      const lines = src.querySelectorAll("[class*=code-line], .view-line");',
+        '      let text;',
+        '      if (lines.length > 0) {',
+        '        text = Array.from(lines).map(l => l.textContent || "").join(NL);',
+        '      } else {',
+        '        const clone = src.cloneNode(true);',
+        '        clone.querySelectorAll("style,script").forEach(s => s.remove());',
+        '        text = clone.textContent || "";',
+        '      }',
+        '      md += NL + FENCE + lang + NL + text.trimEnd() + NL + FENCE + NL;',
+        '      continue;',
+        '    }',
+        '    if (tag === "CODE") { md += BT + (node.textContent || "") + BT; continue; }',
+        '    if (tag === "STRONG" || tag === "B") { md += "**" + htmlToMarkdown(node) + "**"; continue; }',
+        '    if (tag === "EM" || tag === "I") { md += "*" + htmlToMarkdown(node) + "*"; continue; }',
+        '    if (/^H[1-6]$/.test(tag)) { md += NL + "#".repeat(parseInt(tag[1])) + " " + htmlToMarkdown(node) + NL; continue; }',
+        '    if (tag === "UL" || tag === "OL") {',
+        '      node.querySelectorAll(":scope > li").forEach((li, i) => {',
+        '        md += (tag === "OL" ? (i+1) + ". " : "- ") + htmlToMarkdown(li).trim() + NL;',
+        '      }); md += NL; continue;',
+        '    }',
+        '    if (tag === "LI") { md += htmlToMarkdown(node); continue; }',
+        '    if (tag === "A") { md += "[" + htmlToMarkdown(node) + "](" + (node.getAttribute("href")||"") + ")"; continue; }',
+        '    if (tag === "P" || tag === "DIV") { md += htmlToMarkdown(node) + NL; continue; }',
+        '    if (tag === "BR") { md += NL; continue; }',
+        '    if (tag === "BLOCKQUOTE") { md += htmlToMarkdown(node).split(NL).map(l => "> " + l).join(NL) + NL; continue; }',
+        '    if (tag === "HR") { md += NL + "---" + NL; continue; }',
+        '    md += htmlToMarkdown(node);',
+        '  }',
+        '  return md;',
+        '}',
+    ].join('\n');
 
     // ── Auto-accept ─────────────────────────────────────────
 
@@ -889,176 +898,176 @@ export class CdpBridge {
      * Context IDs change as VS Code navigates/refreshes, so we can't rely
      * on the ones saved during connect().
      */
-    private async discoverCurrentContexts(): Promise < number[] > {
-    if(!this.isConnected()) return [];
+    private async discoverCurrentContexts(): Promise<number[]> {
+        if (!this.isConnected()) return [];
 
-    const contexts: number[] = [];
-    const listener = (raw: WebSocket.Data) => {
-        try {
-            const data = JSON.parse(raw.toString());
-            if (data.method === "Runtime.executionContextCreated") {
-                contexts.push(data.params.context.id);
-            }
-        } catch { }
-    };
+        const contexts: number[] = [];
+        const listener = (raw: WebSocket.Data) => {
+            try {
+                const data = JSON.parse(raw.toString());
+                if (data.method === "Runtime.executionContextCreated") {
+                    contexts.push(data.params.context.id);
+                }
+            } catch { }
+        };
 
-    this.ws!.on("message", listener);
+        this.ws!.on("message", listener);
 
-    // Disable then re-enable Runtime to trigger context notifications
-    await this.call("Runtime.disable", {}).catch(() => { });
-    await this.call("Runtime.enable", {}).catch(() => { });
-    await this.sleep(300);
+        // Disable then re-enable Runtime to trigger context notifications
+        await this.call("Runtime.disable", {}).catch(() => { });
+        await this.call("Runtime.enable", {}).catch(() => { });
+        await this.sleep(300);
 
-    this.ws!.off("message", listener);
+        this.ws!.off("message", listener);
 
-    return contexts;
-}
+        return contexts;
+    }
 
-/**
- * Check if auto-accept is currently active.
- */
-isAutoAcceptRunning(): boolean {
-    return this.autoAcceptActive;
-}
+    /**
+     * Check if auto-accept is currently active.
+     */
+    isAutoAcceptRunning(): boolean {
+        return this.autoAcceptActive;
+    }
 
     /**
      * Inject the auto-accept interval into ALL current execution contexts.
      * Re-discovers contexts fresh each time to avoid stale context IDs.
      */
-    async startAutoAccept(): Promise < void> {
-    if(!this.isConnected()) return;
+    async startAutoAccept(): Promise<void> {
+        if (!this.isConnected()) return;
 
-    // Listen for console.log from the auto-accept script
-    this.ws?.on("message", (raw: Buffer) => {
-        try {
-            const data = JSON.parse(raw.toString());
-            if (data.method === "Runtime.consoleAPICalled" && data.params?.type === "log") {
-                const args = data.params.args || [];
-                const text = args.map((a: { value?: string }) => a.value || "").join(" ");
-                if (text.startsWith("[AutoAccept]")) {
-                    this.outputChannel.appendLine(`[CDP] ${text}`);
+        // Listen for console.log from the auto-accept script
+        this.ws?.on("message", (raw: Buffer) => {
+            try {
+                const data = JSON.parse(raw.toString());
+                if (data.method === "Runtime.consoleAPICalled" && data.params?.type === "log") {
+                    const args = data.params.args || [];
+                    const text = args.map((a: { value?: string }) => a.value || "").join(" ");
+                    if (text.startsWith("[AutoAccept]")) {
+                        this.outputChannel.appendLine(`[CDP] ${text}`);
+                    }
                 }
+            } catch { }
+        });
+
+        // Discover FRESH context IDs
+        const freshContexts = await this.discoverCurrentContexts();
+        this.outputChannel.appendLine(
+            `[CDP] Auto-accept: discovered ${freshContexts.length} fresh contexts: [${freshContexts.join(', ')}]`
+        );
+
+        // Inject into ALL discovered contexts
+        const results: string[] = [];
+        for (const ctxId of freshContexts) {
+            try {
+                const res = await this.evaluate(this.autoAcceptScript, ctxId, false);
+                results.push(`ctx${ctxId}=${res}`);
+            } catch (err) {
+                results.push(`ctx${ctxId}=error`);
             }
-        } catch { }
-    });
-
-    // Discover FRESH context IDs
-    const freshContexts = await this.discoverCurrentContexts();
-    this.outputChannel.appendLine(
-        `[CDP] Auto-accept: discovered ${freshContexts.length} fresh contexts: [${freshContexts.join(', ')}]`
-    );
-
-    // Inject into ALL discovered contexts
-    const results: string[] = [];
-    for(const ctxId of freshContexts) {
-        try {
-            const res = await this.evaluate(this.autoAcceptScript, ctxId, false);
-            results.push(`ctx${ctxId}=${res}`);
-        } catch (err) {
-            results.push(`ctx${ctxId}=error`);
         }
-    }
 
         this.outputChannel.appendLine(
-        `[CDP] Auto-accept injection results: [${results.join(', ')}]`
-    );
-    this.autoAcceptActive = true;
-}
+            `[CDP] Auto-accept injection results: [${results.join(', ')}]`
+        );
+        this.autoAcceptActive = true;
+    }
 
     /**
      * Stop the auto-accept interval in ALL current execution contexts.
      */
-    async stopAutoAccept(): Promise < void> {
-    if(!this.isConnected()) return;
+    async stopAutoAccept(): Promise<void> {
+        if (!this.isConnected()) return;
 
-    const freshContexts = await this.discoverCurrentContexts();
-    for(const ctxId of freshContexts) {
-        try {
-            await this.evaluate(this.autoAcceptStopScript, ctxId, false);
-        } catch { }
-    }
+        const freshContexts = await this.discoverCurrentContexts();
+        for (const ctxId of freshContexts) {
+            try {
+                await this.evaluate(this.autoAcceptStopScript, ctxId, false);
+            } catch { }
+        }
 
         this.outputChannel.appendLine("[CDP] Auto-accept stopped in all contexts");
-    this.autoAcceptActive = false;
-}
+        this.autoAcceptActive = false;
+    }
 
     // ── Private helpers ──────────────────────────────────────
 
-    private getTargets(): Promise < CdpTarget[] > {
-    return new Promise((resolve, reject) => {
-        http.get(
-            `http://127.0.0.1:${this.port}/json/list`,
-            (res) => {
-                let data = "";
-                res.on("data", (chunk: Buffer) => (data += chunk));
-                res.on("end", () => {
-                    try {
-                        resolve(JSON.parse(data));
-                    } catch (e) {
-                        reject(e);
-                    }
-                });
-            }
-        ).on("error", reject);
-    });
-}
-
-    private call(
-    method: string,
-    params: Record<string, unknown>
-): Promise < unknown > {
-    return new Promise((resolve, reject) => {
-        if (!this.ws) {
-            reject(new Error("Not connected"));
-            return;
-        }
-        const id = this.idCounter++;
-        const handler = (msg: WebSocket.Data) => {
-            try {
-                const data = JSON.parse(msg.toString());
-                if (data.id === id) {
-                    this.ws?.off("message", handler);
-                    if (data.error) {
-                        reject(
-                            new Error(
-                                data.error.message || JSON.stringify(data.error)
-                            )
-                        );
-                    } else {
-                        resolve(data.result);
-                    }
+    private getTargets(): Promise<CdpTarget[]> {
+        return new Promise((resolve, reject) => {
+            http.get(
+                `http://127.0.0.1:${this.port}/json/list`,
+                (res) => {
+                    let data = "";
+                    res.on("data", (chunk: Buffer) => (data += chunk));
+                    res.on("end", () => {
+                        try {
+                            resolve(JSON.parse(data));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
                 }
-            } catch { }
-        };
-        this.ws.on("message", handler);
-        this.ws.send(JSON.stringify({ id, method, params }));
-    });
-}
-
-    private async evaluate(
-    expression: string,
-    contextId: number,
-    awaitPromise: boolean = false
-): Promise < unknown > {
-    const result = (await this.call("Runtime.evaluate", {
-        expression,
-        returnByValue: true,
-        awaitPromise,
-        contextId,
-    })) as EvalResult;
-
-    if(result?.exceptionDetails) {
-        throw new Error(
-            `Eval error: ${result.exceptionDetails.text}`
-        );
+            ).on("error", reject);
+        });
     }
 
+    private call(
+        method: string,
+        params: Record<string, unknown>
+    ): Promise<unknown> {
+        return new Promise((resolve, reject) => {
+            if (!this.ws) {
+                reject(new Error("Not connected"));
+                return;
+            }
+            const id = this.idCounter++;
+            const handler = (msg: WebSocket.Data) => {
+                try {
+                    const data = JSON.parse(msg.toString());
+                    if (data.id === id) {
+                        this.ws?.off("message", handler);
+                        if (data.error) {
+                            reject(
+                                new Error(
+                                    data.error.message || JSON.stringify(data.error)
+                                )
+                            );
+                        } else {
+                            resolve(data.result);
+                        }
+                    }
+                } catch { }
+            };
+            this.ws.on("message", handler);
+            this.ws.send(JSON.stringify({ id, method, params }));
+        });
+    }
+
+    private async evaluate(
+        expression: string,
+        contextId: number,
+        awaitPromise: boolean = false
+    ): Promise<unknown> {
+        const result = (await this.call("Runtime.evaluate", {
+            expression,
+            returnByValue: true,
+            awaitPromise,
+            contextId,
+        })) as EvalResult;
+
+        if (result?.exceptionDetails) {
+            throw new Error(
+                `Eval error: ${result.exceptionDetails.text}`
+            );
+        }
+
         return result?.result?.value;
-}
+    }
 
     // isNoiseLine is now in utils.ts
 
-    private sleep(ms: number): Promise < void> {
-    return new Promise((r) => setTimeout(r, ms));
-}
+    private sleep(ms: number): Promise<void> {
+        return new Promise((r) => setTimeout(r, ms));
+    }
 }
