@@ -6,10 +6,13 @@
 
 - 🤖 **Auto-processing** — Discord messages are automatically sent to the IDE Language Model (Gemini, Copilot, etc.) and responses are posted back
 - 🔧 **CDP Bridge** — Uses Chrome DevTools Protocol to interact with the Antigravity chat editor, injecting messages and extracting responses via DOM diffing
-- ✅ **Auto-Accept** — Automatically clicks Accept / Run / Always Allow buttons during processing, with `scrollIntoView` for off-screen buttons
+- ✅ **Auto-Accept** — Automatically clicks Accept / Run / Always Allow buttons, always-on when CDP is connected, with `scrollIntoView` for off-screen buttons
+- 📋 **Message Queue** — Concurrent Discord messages are queued (up to 5) instead of rejected, with position feedback
+- 🎨 **Rich Markdown** — Code blocks with syntax highlighting, bold, italic, inline code, lists, and blockquotes are preserved on Discord
 - ⚙️ **Settings GUI** — Tabbed sidebar panel with built-in settings form (Bot Token, Channel ID, Debug Port, Auto-Accept toggle)
-- 📡 **Live Status** — Green/red connection indicators for Discord and CDP right in the sidebar
+- 📡 **Live Status** — Green/red connection indicators for Discord, CDP, and Auto-Accept right in the sidebar
 - ✂️ **Smart message splitting** — Automatically splits long responses to respect Discord's 2000-character limit
+- 🔇 **Noise filtering** — Strips Antigravity UI chrome and diagnostic logs from responses automatically
 - 🎨 **VS Code theming** — Chat and settings panels follow your IDE theme
 
 ## Screenshots
@@ -20,9 +23,9 @@
 
 ## Installation
 
-### From VS Code Marketplace (coming soon)
+### From VS Code Marketplace
 
-Search for **"Antigravity Discord Bridge"** in the Extensions panel (`Ctrl+Shift+X`).
+Search for **"Antigravity Discord Bridge"** in the Extensions panel (`Ctrl+Shift+X`) and click **Install**.
 
 ### From .vsix (Releases)
 
@@ -106,7 +109,7 @@ Discord User → message → Discord Channel
 
 The extension connects to Antigravity's debugging interface via CDP, finds the chat editor in the DOM, injects messages programmatically, and extracts AI responses by diffing page snapshots before and after processing.
 
-**Auto-Accept** runs a CDP-injected interval during processing that finds and clicks confirmation buttons (Accept, Run, Always Allow), scrolling them into view if needed. It activates only during Discord message processing and stops automatically when done.
+**Auto-Accept** runs a CDP-injected interval that finds and clicks confirmation buttons (Accept, Run, Always Allow), scrolling them into view if needed. It activates automatically when the CDP connection is established and stays on continuously — no need to trigger it per message.
 
 ## Settings
 
@@ -128,6 +131,9 @@ npm run compile
 
 # Watch mode
 npm run watch
+
+# Run tests
+npm test
 
 # Package as .vsix
 npm run package
