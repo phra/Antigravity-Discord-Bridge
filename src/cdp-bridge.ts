@@ -31,6 +31,7 @@ export class CdpBridge {
     private port: number;
     private outputChannel: vscode.OutputChannel;
     private connected = false;
+    private autoAcceptActive = false;
 
     constructor(port: number, outputChannel: vscode.OutputChannel) {
         this.port = port;
@@ -946,6 +947,13 @@ export class CdpBridge {
     }
 
     /**
+     * Check if auto-accept is currently active.
+     */
+    isAutoAcceptRunning(): boolean {
+        return this.autoAcceptActive;
+    }
+
+    /**
      * Inject the auto-accept interval into ALL current execution contexts.
      * Re-discovers contexts fresh each time to avoid stale context IDs.
      */
@@ -986,6 +994,7 @@ export class CdpBridge {
         this.outputChannel.appendLine(
             `[CDP] Auto-accept injection results: [${results.join(', ')}]`
         );
+        this.autoAcceptActive = true;
     }
 
     /**
@@ -1002,6 +1011,7 @@ export class CdpBridge {
         }
 
         this.outputChannel.appendLine("[CDP] Auto-accept stopped in all contexts");
+        this.autoAcceptActive = false;
     }
 
     // ── Private helpers ──────────────────────────────────────

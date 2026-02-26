@@ -17,6 +17,7 @@ interface SettingsData {
 interface StatusData {
     discord: boolean;
     cdp: boolean;
+    autoAccept: boolean;
 }
 
 export class ChatPanelProvider implements vscode.WebviewViewProvider {
@@ -431,6 +432,10 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
             <span class="status-dot off" id="cdp-dot"></span>
             <span>CDP</span>
         </div>
+        <div class="status-item">
+            <span class="status-dot off" id="autoaccept-dot"></span>
+            <span>Auto-Accept</span>
+        </div>
     </div>
 
     <!-- Tabs -->
@@ -605,6 +610,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
                     'status-dot ' + (data.discord ? 'on' : 'off');
                 document.getElementById('cdp-dot').className =
                     'status-dot ' + (data.cdp ? 'on' : 'off');
+                document.getElementById('autoaccept-dot').className =
+                    'status-dot ' + (data.autoAccept ? 'on' : 'off');
             }
         });
 

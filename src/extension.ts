@@ -27,6 +27,7 @@ export function activate(context: vscode.ExtensionContext) {
     chatPanel.onStatusRequest(() => ({
         discord: discordClient?.isConnected() ?? false,
         cdp: cdpBridge?.isConnected() ?? false,
+        autoAccept: cdpBridge?.isAutoAcceptRunning() ?? false,
     }));
 
     // Try to connect Discord on activation
@@ -180,6 +181,7 @@ function pushStatus(): void {
     chatPanel.updateStatus({
         discord: discordClient?.isConnected() ?? false,
         cdp: cdpBridge?.isConnected() ?? false,
+        autoAccept: cdpBridge?.isAutoAcceptRunning() ?? false,
     });
 }
 
@@ -278,6 +280,22 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
         outputChannel.appendLine(
             `[CDP] Message injected (${(sendResult as { method?: string }).method || "unknown"})`
         );
+
+        // 2b. Verify the agent started — retry send if not
+        // Fixes first-message-empty bug when editor needs initial warm-up
+        let agentStarted = false;
+        for (let i = 0; i < 6 && !agentStarted; i++) {
+            await new Promise(r => setTimeout(r, 500));
+            agentStarted = await cdpBridge!.isBusy();
+        }
+
+        if (!agentStarted) {
+            outputChannel.appendLine("[CDP] Agent didn't start — retrying message send");
+            const retryResult = await cdpBridge!.sendMessage(msg.content);
+            outputChannel.appendLine(
+                `[CDP] Retry result: ${retryResult.ok ? 'ok' : retryResult.error} (${(retryResult as { method?: string }).method || "unknown"})`
+            );
+        }
 
         // Auto-accept is now always-on (started at CDP connect time)
 
