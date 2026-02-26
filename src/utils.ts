@@ -43,7 +43,11 @@ export function isNoiseLine(line: string): boolean {
 
     // Auto-accept scan output (JSON arrays of button texts)
     if (/^\[AutoAccept\]/.test(line)) return true;
-    if (/^\["/.test(line) && /"\]$/.test(line)) return true;
+    if (/^\["/.test(line) && /"?\]$/.test(line)) return true;
+    // Fragmented scan output (partial JSON arrays)
+    if (/^\d+ more lines","/.test(line)) return true;
+    if (/^"\u22ef Expand \d+/.test(line)) return true;
+    if (/","/.test(line) && (/"Always run"/.test(line) || /"Review Changes"/.test(line) || /"Planning"/.test(line))) return true;
 
     return false;
 }

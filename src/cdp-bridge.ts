@@ -801,26 +801,36 @@ export class CdpBridge {
 
                 // Find the chat container
                 const chatContainer = document.querySelector('#cascade')
-                    || document.querySelector('[class*="chat-message"]')?.closest('[class*="scroll"]')
                     || document.querySelector('[role="log"]')
                     || document.querySelector('[class*="conversation"]');
                 if (!chatContainer) return '';
 
-                // Try to find structured message containers
-                // Look for the LAST message block that is an assistant response
-                const allMsgBlocks = chatContainer.querySelectorAll(
-                    '[class*="message"], [class*="response"], [class*="assistant"], [class*="reply"], [data-role="assistant"]'
-                );
-
-                // Try the last block first
-                if (allMsgBlocks.length > 0) {
-                    const lastBlock = allMsgBlocks[allMsgBlocks.length - 1];
-                    const md = htmlToMarkdown(lastBlock);
-                    if (md.trim().length > 0) return md.trim();
+                // Strategy: find ALL elements that contain <pre> (code blocks)
+                // or substantial text, then pick the LAST one that looks like a response.
+                // Walk backwards through descendants to find the last response block.
+                
+                // First, try to find last element with both text and code blocks
+                const allPres = chatContainer.querySelectorAll('pre');
+                if (allPres.length > 0) {
+                    // Find the closest common ancestor of the last PRE block
+                    const lastPre = allPres[allPres.length - 1];
+                    // Walk up to find a container that has substantial text + code
+                    let container = lastPre.parentElement;
+                    while (container && container !== chatContainer) {
+                        const text = (container.textContent || '').trim();
+                        if (text.length > 50) {
+                            // Check this container isn't the chat itself
+                            const siblingCount = container.parentElement?.children.length || 0;
+                            if (siblingCount > 1 || container.parentElement === chatContainer) {
+                                const md = htmlToMarkdown(container);
+                                if (md.trim().length > 20) return md.trim();
+                            }
+                        }
+                        container = container.parentElement;
+                    }
                 }
 
-                // Fallback: find the last large text block
-                // Get all direct children and find the last one with substantial content
+                // Fallback: find last substantial text block among direct children
                 const children = Array.from(chatContainer.children);
                 for (let i = children.length - 1; i >= 0; i--) {
                     const child = children[i];
