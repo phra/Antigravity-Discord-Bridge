@@ -803,49 +803,66 @@ export class CdpBridge {
                 const chatContainer = document.querySelector('#cascade')
                     || document.querySelector('[role="log"]')
                     || document.querySelector('[class*="conversation"]');
-                if (!chatContainer) return '';
+                if (!chatContainer) return { md: '', diag: 'no_cascade' };
 
-                // Strategy: find ALL elements that contain <pre> (code blocks)
-                // or substantial text, then pick the LAST one that looks like a response.
-                // Walk backwards through descendants to find the last response block.
-                
-                // First, try to find last element with both text and code blocks
+                // Diagnostics
+                const cascadeTag = chatContainer.tagName + '.' + chatContainer.className.substring(0, 50);
                 const allPres = chatContainer.querySelectorAll('pre');
-                if (allPres.length > 0) {
-                    // Find the closest common ancestor of the last PRE block
-                    const lastPre = allPres[allPres.length - 1];
-                    // Walk up to find a container that has substantial text + code
+                const preCount = allPres.length;
+                const childCount = chatContainer.children.length;
+                const lastChildTags = Array.from(chatContainer.children)
+                    .slice(-5)
+                    .map(c => c.tagName + '(' + (c.className || '').substring(0, 30) + ')');
+
+                // Strategy 1: find last <pre> and walk up to response container
+                if (preCount > 0) {
+                    const lastPre = allPres[preCount - 1];
                     let container = lastPre.parentElement;
                     while (container && container !== chatContainer) {
                         const text = (container.textContent || '').trim();
                         if (text.length > 50) {
-                            // Check this container isn't the chat itself
                             const siblingCount = container.parentElement?.children.length || 0;
                             if (siblingCount > 1 || container.parentElement === chatContainer) {
                                 const md = htmlToMarkdown(container);
-                                if (md.trim().length > 20) return md.trim();
+                                if (md.trim().length > 20) {
+                                    return { md: md.trim(), diag: 'pre_ancestor:' + container.tagName + ',pres=' + preCount };
+                                }
                             }
                         }
                         container = container.parentElement;
                     }
                 }
 
-                // Fallback: find last substantial text block among direct children
+                // Strategy 2: find last substantial child
                 const children = Array.from(chatContainer.children);
                 for (let i = children.length - 1; i >= 0; i--) {
                     const child = children[i];
                     if ((child.textContent || '').trim().length > 20) {
                         const md = htmlToMarkdown(child);
-                        if (md.trim().length > 20) return md.trim();
+                        if (md.trim().length > 20) {
+                            return { md: md.trim(), diag: 'last_child:' + child.tagName + ',idx=' + i + '/' + childCount };
+                        }
                     }
                 }
 
-                return '';
+                return { md: '', diag: 'empty:cascade=' + cascadeTag + ',pres=' + preCount + ',children=' + childCount + ',lastTags=[' + lastChildTags.join(',') + ']' };
             })()`,
             this.contextId!
         );
 
-        const md = (result as string) || "";
+        const r = result as { md: string; diag: string } | string | null;
+        let md = '';
+        let diag = '';
+        if (typeof r === 'string') {
+            md = r;
+        } else if (r && typeof r === 'object') {
+            md = r.md || '';
+            diag = r.diag || '';
+        }
+
+        this.outputChannel.appendLine(
+            `[CDP] extractLastResponseMarkdown: ${md.length} chars, diag=${diag}`
+        );
 
         // Clean up excessive newlines
         return md
