@@ -62,6 +62,23 @@ describe('isNoiseLine', () => {
         expect(isNoiseLine('Use Ctrl+C to copy')).toBe(false);
         expect(isNoiseLine('I thought about this problem')).toBe(false);
     });
+
+    it('detects Antigravity UI chrome elements', () => {
+        expect(isNoiseLine('⋯ Expand 214 more lines')).toBe(true);
+        expect(isNoiseLine('⋯ Expand 78 more lines')).toBe(true);
+        expect(isNoiseLine('⋯ Expand 20 more lines')).toBe(true);
+        expect(isNoiseLine('Always run')).toBe(true);
+        expect(isNoiseLine('Planning')).toBe(true);
+        expect(isNoiseLine('Review Changes')).toBe(true);
+        expect(isNoiseLine('Review')).toBe(true);
+        expect(isNoiseLine('Cancel')).toBe(true);
+        expect(isNoiseLine('Submit')).toBe(true);
+    });
+
+    it('detects auto-accept scan output', () => {
+        expect(isNoiseLine('[AutoAccept] Scan #1: 28 buttons.')).toBe(true);
+        expect(isNoiseLine('["Always run","Review","Planning",""]')).toBe(true);
+    });
 });
 
 // ── isAcceptButton ───────────────────────────────────────

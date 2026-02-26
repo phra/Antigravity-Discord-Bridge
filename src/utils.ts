@@ -34,6 +34,17 @@ export function isNoiseLine(line: string): boolean {
     // Thought/thinking markers that are UI chrome, not content
     if (/^Thought for/.test(line)) return true;
 
+    // Antigravity UI chrome elements
+    if (/^⋯ Expand \d+ more lines?$/.test(line)) return true;
+    if (line === 'Always run') return true;
+    if (line === 'Planning' || line === 'Review Changes' || line === 'Review') return true;
+    if (line === 'Cancel' || line === 'Submit') return true;
+    if (line === 'Reject' || line === 'Accept') return true;
+
+    // Auto-accept scan output (JSON arrays of button texts)
+    if (/^\[AutoAccept\]/.test(line)) return true;
+    if (/^\["/.test(line) && /"\]$/.test(line)) return true;
+
     return false;
 }
 

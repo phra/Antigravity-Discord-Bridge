@@ -885,7 +885,7 @@ export class CdpBridge {
             scanCount++;
             const buttons = findAllButtons(document);
 
-            if (scanCount % 5 === 1) {
+            if (scanCount % 20 === 1) {
                 const btnTexts = buttons.slice(0, 30).map(b => (b.textContent || '').trim().substring(0, 50));
                 console.log('[AutoAccept] Scan #' + scanCount + ': ' + buttons.length + ' buttons. Sample: ' + JSON.stringify(btnTexts));
             }
