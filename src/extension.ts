@@ -21,6 +21,12 @@ export function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Provide connection status to the panel
+    chatPanel.onStatusRequest(() => ({
+        discord: discordClient?.isConnected() ?? false,
+        cdp: cdpBridge?.isConnected() ?? false,
+    }));
+
     // Try to connect Discord on activation
     connectDiscord().catch((err) => {
         outputChannel.appendLine(`[Extension] Discord connect failed: ${err}`);
@@ -105,6 +111,7 @@ async function connectCdp(): Promise<void> {
         outputChannel.appendLine(`[Extension] CDP failed: ${errorMsg}`);
         cdpBridge = null;
     }
+    pushStatus();
 }
 
 /**
@@ -150,6 +157,17 @@ async function connectDiscord(): Promise<void> {
         );
         discordClient = null;
     }
+    pushStatus();
+}
+
+/**
+ * Push current connection status to the webview panel.
+ */
+function pushStatus(): void {
+    chatPanel.updateStatus({
+        discord: discordClient?.isConnected() ?? false,
+        cdp: cdpBridge?.isConnected() ?? false,
+    });
 }
 
 /**
