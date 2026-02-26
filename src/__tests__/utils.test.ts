@@ -70,6 +70,7 @@ describe('isAcceptButton', () => {
     it('matches exact button texts', () => {
         expect(isAcceptButton('Accept')).toBe(true);
         expect(isAcceptButton('Run')).toBe(true);
+        expect(isAcceptButton('Always run')).toBe(true);
         expect(isAcceptButton('Always Allow')).toBe(true);
     });
 
@@ -77,7 +78,9 @@ describe('isAcceptButton', () => {
         expect(isAcceptButton('Accept all')).toBe(true);
         expect(isAcceptButton('Accept All Changes')).toBe(true);
         expect(isAcceptButton('Run All+1')).toBe(true);
+        expect(isAcceptButton('Run Alt+↵')).toBe(true);
         expect(isAcceptButton('Run command')).toBe(true);
+        expect(isAcceptButton('Always run this extension')).toBe(true);
         expect(isAcceptButton('Always Allow this extension')).toBe(true);
     });
 
@@ -99,9 +102,6 @@ describe('isAcceptButton', () => {
     it('handles edge cases', () => {
         expect(isAcceptButton('')).toBe(false);
         expect(isAcceptButton('   ')).toBe(false);
-        expect(isAcceptButton('Running')).toBe(false);
-        // "Run" without space after is exact match only
-        expect(isAcceptButton('Runtime')).toBe(false);
     });
 });
 

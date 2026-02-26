@@ -6,6 +6,7 @@ tsconfig.json
 # Dev files
 .gitignore
 .github/
+scripts/
 
 # TypeScript artifacts (not needed — esbuild produces dist/extension.js)
 *.map

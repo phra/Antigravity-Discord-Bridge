@@ -870,12 +870,13 @@ export class CdpBridge {
         }
 
         function isAcceptButton(text) {
-            return text === 'Accept'
-                || text === 'Run'
-                || text === 'Always Allow'
-                || text.startsWith('Accept')
-                || text.startsWith('Run ')
-                || text.startsWith('Always Allow');
+            // Antigravity-specific buttons
+            if (text === 'Accept' || text === 'Run' || text === 'Always run') return true;
+            if (text.startsWith('Accept')) return true;   // "Accept all", "Accept All Changes"
+            if (text.startsWith('Run'))    return true;   // "Run Alt+↵", "Run All+1", "Run command"
+            if (text.startsWith('Always run')) return true;
+            if (text.startsWith('Always Allow')) return true;
+            return false;
         }
 
         let scanCount = 0;
@@ -914,15 +915,41 @@ export class CdpBridge {
     })()`;
 
     /**
-     * Inject the auto-accept interval into ALL execution contexts.
-     * We inject into every context because the Accept/Run buttons may be
-     * rendered in the main VS Code workbench context, not the chat webview.
+     * Re-discover current execution contexts on our WebSocket connection.
+     * Context IDs change as VS Code navigates/refreshes, so we can't rely
+     * on the ones saved during connect().
+     */
+    private async discoverCurrentContexts(): Promise<number[]> {
+        if (!this.isConnected()) return [];
+
+        const contexts: number[] = [];
+        const listener = (raw: WebSocket.Data) => {
+            try {
+                const data = JSON.parse(raw.toString());
+                if (data.method === "Runtime.executionContextCreated") {
+                    contexts.push(data.params.context.id);
+                }
+            } catch { }
+        };
+
+        this.ws!.on("message", listener);
+
+        // Disable then re-enable Runtime to trigger context notifications
+        await this.call("Runtime.disable", {}).catch(() => { });
+        await this.call("Runtime.enable", {}).catch(() => { });
+        await this.sleep(300);
+
+        this.ws!.off("message", listener);
+
+        return contexts;
+    }
+
+    /**
+     * Inject the auto-accept interval into ALL current execution contexts.
+     * Re-discovers contexts fresh each time to avoid stale context IDs.
      */
     async startAutoAccept(): Promise<void> {
         if (!this.isConnected()) return;
-
-        // Enable console API events so we can capture debug output
-        await this.call("Runtime.enable", {}).catch(() => { });
 
         // Listen for console.log from the auto-accept script
         this.ws?.on("message", (raw: Buffer) => {
@@ -938,9 +965,15 @@ export class CdpBridge {
             } catch { }
         });
 
-        // Inject into ALL contexts
+        // Discover FRESH context IDs
+        const freshContexts = await this.discoverCurrentContexts();
+        this.outputChannel.appendLine(
+            `[CDP] Auto-accept: discovered ${freshContexts.length} fresh contexts: [${freshContexts.join(', ')}]`
+        );
+
+        // Inject into ALL discovered contexts
         const results: string[] = [];
-        for (const ctxId of this.allContextIds) {
+        for (const ctxId of freshContexts) {
             try {
                 const res = await this.evaluate(this.autoAcceptScript, ctxId, false);
                 results.push(`ctx${ctxId}=${res}`);
@@ -949,41 +982,23 @@ export class CdpBridge {
             }
         }
 
-        // Also try without contextId (default context)
-        try {
-            const res = await this.call("Runtime.evaluate", {
-                expression: this.autoAcceptScript,
-                returnByValue: true,
-            });
-            results.push(`default=${(res as EvalResult)?.result?.value || 'ok'}`);
-        } catch {
-            results.push("default=error");
-        }
-
         this.outputChannel.appendLine(
-            `[CDP] Auto-accept injected into ${this.allContextIds.length} contexts + default: [${results.join(', ')}]`
+            `[CDP] Auto-accept injection results: [${results.join(', ')}]`
         );
     }
 
     /**
-     * Stop the auto-accept interval in ALL execution contexts.
+     * Stop the auto-accept interval in ALL current execution contexts.
      */
     async stopAutoAccept(): Promise<void> {
         if (!this.isConnected()) return;
 
-        for (const ctxId of this.allContextIds) {
+        const freshContexts = await this.discoverCurrentContexts();
+        for (const ctxId of freshContexts) {
             try {
                 await this.evaluate(this.autoAcceptStopScript, ctxId, false);
             } catch { }
         }
-
-        // Also stop in default context
-        try {
-            await this.call("Runtime.evaluate", {
-                expression: this.autoAcceptStopScript,
-                returnByValue: true,
-            });
-        } catch { }
 
         this.outputChannel.appendLine("[CDP] Auto-accept stopped in all contexts");
     }

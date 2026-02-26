@@ -44,12 +44,13 @@ export function isNoiseLine(line: string): boolean {
  * Used by the CDP-injected auto-accept interval.
  */
 export function isAcceptButton(text: string): boolean {
-    return text === 'Accept'
-        || text === 'Run'
-        || text === 'Always Allow'
-        || text.startsWith('Accept')
-        || text.startsWith('Run ')
-        || text.startsWith('Always Allow');
+    // Antigravity-specific buttons
+    if (text === 'Accept' || text === 'Run' || text === 'Always run') return true;
+    if (text.startsWith('Accept')) return true;     // "Accept all", "Accept All Changes"
+    if (text.startsWith('Run')) return true;     // "Run Alt+↵", "Run All+1"
+    if (text.startsWith('Always run')) return true;
+    if (text.startsWith('Always Allow')) return true;
+    return false;
 }
 
 // ── Message splitting ────────────────────────────────────
