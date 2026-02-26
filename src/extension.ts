@@ -106,6 +106,17 @@ async function connectCdp(): Promise<void> {
     try {
         await cdpBridge.connect();
         outputChannel.appendLine("[Extension] CDP bridge ready");
+
+        // Start auto-accept immediately if enabled
+        const autoAcceptEnabled = config.get<boolean>("autoAccept", true);
+        if (autoAcceptEnabled) {
+            try {
+                await cdpBridge.startAutoAccept();
+                outputChannel.appendLine("[Extension] Auto-accept started (always-on mode)");
+            } catch (err) {
+                outputChannel.appendLine(`[Extension] Auto-accept start failed: ${err}`);
+            }
+        }
     } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         outputChannel.appendLine(`[Extension] CDP failed: ${errorMsg}`);
