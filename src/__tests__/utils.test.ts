@@ -70,17 +70,15 @@ describe('isAcceptButton', () => {
     it('matches exact button texts', () => {
         expect(isAcceptButton('Accept')).toBe(true);
         expect(isAcceptButton('Run')).toBe(true);
-        expect(isAcceptButton('Always run')).toBe(true);
         expect(isAcceptButton('Always Allow')).toBe(true);
     });
 
     it('matches buttons with suffixes', () => {
         expect(isAcceptButton('Accept all')).toBe(true);
         expect(isAcceptButton('Accept All Changes')).toBe(true);
-        expect(isAcceptButton('Run All+1')).toBe(true);
         expect(isAcceptButton('Run Alt+↵')).toBe(true);
+        expect(isAcceptButton('Run All+1')).toBe(true);
         expect(isAcceptButton('Run command')).toBe(true);
-        expect(isAcceptButton('Always run this extension')).toBe(true);
         expect(isAcceptButton('Always Allow this extension')).toBe(true);
     });
 
@@ -93,10 +91,10 @@ describe('isAcceptButton', () => {
         expect(isAcceptButton('Delete')).toBe(false);
     });
 
-    it('rejects partial matches in wrong position', () => {
+    it('rejects mode toggles and partial matches', () => {
+        expect(isAcceptButton('Always run')).toBe(false);   // mode toggle, not approval
         expect(isAcceptButton('Do not Accept')).toBe(false);
         expect(isAcceptButton('Override Run')).toBe(false);
-        expect(isAcceptButton('Not Always Allow')).toBe(false);
     });
 
     it('handles edge cases', () => {

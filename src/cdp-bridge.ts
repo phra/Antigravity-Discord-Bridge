@@ -870,12 +870,12 @@ export class CdpBridge {
         }
 
         function isAcceptButton(text) {
-            // Antigravity-specific buttons
-            if (text === 'Accept' || text === 'Run' || text === 'Always run') return true;
-            if (text.startsWith('Accept')) return true;   // "Accept all", "Accept All Changes"
-            if (text.startsWith('Run'))    return true;   // "Run Alt+↵", "Run All+1", "Run command"
-            if (text.startsWith('Always run')) return true;
-            if (text.startsWith('Always Allow')) return true;
+            // Only match actual APPROVAL buttons, not mode toggles
+            if (text === 'Accept' || text === 'Run') return true;
+            if (text.startsWith('Accept'))       return true;  // "Accept all", "Accept All Changes"
+            if (text.startsWith('Run '))          return true;  // "Run Alt+↵", "Run All+1"
+            if (text.startsWith('Always Allow'))  return true;
+            // NOTE: "Always run" is a mode toggle, NOT an approval button
             return false;
         }
 
