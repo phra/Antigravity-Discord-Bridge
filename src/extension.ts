@@ -8,6 +8,8 @@ let cdpBridge: CdpBridge | null = null;
 let chatPanel: ChatPanelProvider;
 let outputChannel: vscode.OutputChannel;
 let processing = false;
+const messageQueue: DiscordMessage[] = [];
+const MAX_QUEUE_SIZE = 5;
 
 export function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel("Antigravity Discord");
@@ -189,12 +191,27 @@ function pushStatus(): void {
  */
 async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
     if (processing) {
+        // Enqueue instead of rejecting
+        if (messageQueue.length >= MAX_QUEUE_SIZE) {
+            outputChannel.appendLine(
+                `[Extension] Queue full (${MAX_QUEUE_SIZE}), dropping message from ${msg.author}`
+            );
+            if (discordClient?.isConnected()) {
+                await discordClient.sendMessage(
+                    `⚠️ Coda piena (${MAX_QUEUE_SIZE} messaggi). Riprova più tardi.`
+                );
+            }
+            return;
+        }
+
+        messageQueue.push(msg);
+        const position = messageQueue.length;
         outputChannel.appendLine(
-            `[Extension] Busy processing, skipping message from ${msg.author}`
+            `[Extension] Queued message from ${msg.author} (position ${position})`
         );
         if (discordClient?.isConnected()) {
             await discordClient.sendMessage(
-                `⏳ Sto ancora elaborando una richiesta precedente. Riprova tra poco.`
+                `⏳ In coda (posizione ${position}). Il tuo messaggio verrà elaborato automaticamente.`
             );
         }
         return;
@@ -262,16 +279,7 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             `[CDP] Message injected (${(sendResult as { method?: string }).method || "unknown"})`
         );
 
-        // 2b. Start auto-accept if enabled
-        const config = vscode.workspace.getConfiguration("antigravity-discord");
-        const autoAccept = config.get<boolean>("autoAccept", true);
-        if (autoAccept && cdpBridge?.isConnected()) {
-            try {
-                await cdpBridge.startAutoAccept();
-            } catch (err) {
-                outputChannel.appendLine(`[CDP] Auto-accept start failed: ${err}`);
-            }
-        }
+        // Auto-accept is now always-on (started at CDP connect time)
 
         // 3. Create a Discord thread for reasoning/thinking stream
         let reasoningThread: import("discord.js").ThreadChannel | null = null;
@@ -373,11 +381,24 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
                 .catch(() => { });
         }
     } finally {
-        // Always stop auto-accept
-        if (cdpBridge?.isConnected()) {
-            cdpBridge.stopAutoAccept().catch(() => { });
-        }
         processing = false;
         discordClient?.setPresence("online", "Waiting for commands");
+
+        // Process next queued message if any
+        if (messageQueue.length > 0) {
+            const nextMsg = messageQueue.shift()!;
+            outputChannel.appendLine(
+                `[Extension] Dequeuing message from ${nextMsg.author} (${messageQueue.length} remaining)`
+            );
+            if (discordClient?.isConnected()) {
+                await discordClient.sendMessage(
+                    `▶️ Elaborazione del tuo messaggio in coda: "${nextMsg.content.substring(0, 80)}${nextMsg.content.length > 80 ? '...' : ''}"`
+                ).catch(() => { });
+            }
+            // Process asynchronously (don't await to avoid deep recursion)
+            handleDiscordMessage(nextMsg).catch((err) => {
+                outputChannel.appendLine(`[Extension] Queue processing error: ${err}`);
+            });
+        }
     }
 }
