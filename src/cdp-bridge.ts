@@ -799,11 +799,11 @@ export class CdpBridge {
                     return md;
                 }
 
-                // Find the chat container
+                // Find the chat container (same fallback chain as chatSnapshot)
                 const chatContainer = document.querySelector('#cascade')
                     || document.querySelector('[role="log"]')
-                    || document.querySelector('[class*="conversation"]');
-                if (!chatContainer) return { md: '', diag: 'no_cascade' };
+                    || document.querySelector('[class*="conversation"]')
+                    || document.body;
 
                 // Diagnostics
                 const cascadeTag = chatContainer.tagName + '.' + chatContainer.className.substring(0, 50);
