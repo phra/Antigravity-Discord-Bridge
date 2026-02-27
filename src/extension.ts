@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { DiscordClient, DiscordMessage } from "./discord-client.js";
 import { ChatPanelProvider } from "./chat-panel.js";
 import { CdpBridge } from "./cdp-bridge.js";
+import { isMcpNoise } from "./utils.js";
 
 let discordClient: DiscordClient | null = null;
 let cdpBridge: CdpBridge | null = null;
@@ -325,10 +326,23 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
             }
         }, 5000);
 
-        // 5. Wait for the agent to respond (no intermediate streaming — too noisy)
+        // 5. Wait for the agent to respond, streaming reasoning to thread
         try {
             const response = await cdpBridge!.waitForResponse(
-                preSnapshot, msg.content
+                preSnapshot, msg.content,
+                // Stream reasoning chunks to the Discord thread
+                async (chunk: string) => {
+                    if (reasoningThread && discordClient?.isConnected()) {
+                        try {
+                            // Skip noise and MCP config text in reasoning
+                            if (isMcpNoise(chunk)) return;
+                            const trimmed = chunk.substring(0, 1900); // Discord limit
+                            if (trimmed.length > 5) {
+                                await discordClient.sendToThread(reasoningThread, trimmed);
+                            }
+                        } catch { }
+                    }
+                }
             );
             clearInterval(typingInterval);
 
@@ -373,10 +387,17 @@ async function handleDiscordMessage(msg: DiscordMessage): Promise<void> {
                     );
                 }
 
-                await discordClient.sendMessage(discordResponse);
-                outputChannel.appendLine(
-                    `[Extension] Final response sent to Discord channel (${discordResponse.length} chars)`
-                );
+                // Skip MCP config noise that leaked into the response
+                if (isMcpNoise(discordResponse)) {
+                    outputChannel.appendLine(
+                        `[Extension] Skipping MCP noise response (${discordResponse.length} chars)`
+                    );
+                } else {
+                    await discordClient.sendMessage(discordResponse);
+                    outputChannel.appendLine(
+                        `[Extension] Final response sent to Discord channel (${discordResponse.length} chars)`
+                    );
+                }
             }
 
             vscode.window.setStatusBarMessage(

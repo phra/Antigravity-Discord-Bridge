@@ -52,6 +52,21 @@ export function isNoiseLine(line: string): boolean {
     return false;
 }
 
+/**
+ * Detect MCP configuration text and VS Code dialog noise
+ * that isn't part of the AI response.
+ */
+export function isMcpNoise(text: string): boolean {
+    if (/Press desired key combination/i.test(text)) return true;
+    if (/Configuring MCP/i.test(text)) return true;
+    if (/MCP \(Model Context Protocol\)/i.test(text)) return true;
+    if (/mcpServers/i.test(text)) return true;
+    if (/@modelcontextprotocol/i.test(text)) return true;
+    if (/GITHUB_PERSONAL_ACCESS_TOKEN/i.test(text)) return true;
+    if (/An MCP server implements/i.test(text)) return true;
+    return false;
+}
+
 // ── Auto-accept button matching ──────────────────────────
 
 /**
