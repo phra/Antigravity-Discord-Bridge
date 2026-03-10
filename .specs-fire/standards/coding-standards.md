@@ -1,0 +1,184 @@
+# Coding Standards
+
+## Overview
+
+TypeScript coding standards for the Antigravity Discord Bridge VS Code extension. Strict mode enabled, ES2022 target, Node16 module resolution.
+
+## Code Formatting
+
+**Tool**: Not explicitly configured (follow TypeScript defaults)
+**Config**: N/A
+**Enforcement**: Manual
+
+### Key Settings
+
+- **Indent**: 4 spaces (observed in codebase)
+- **Quotes**: Double quotes for strings
+- **Semicolons**: Always
+- **Trailing commas**: As needed
+
+## Linting
+
+**Tool**: ESLint
+**Base Config**: Default
+**Strictness**: Standard
+
+### Key Rules
+
+- `strict`: enabled — TypeScript strict mode via `tsconfig.json`
+- `no-unused-vars`: warn — Avoid dead code
+- `no-explicit-any`: warn — Prefer typed interfaces
+
+## Naming Conventions
+
+### Variables and Functions
+
+| Element | Convention | Example |
+|---------|------------|---------|
+| Variables | camelCase | `discordClient` |
+| Functions | camelCase | `handleDiscordMessage` |
+| Constants | UPPER_SNAKE | `MAX_QUEUE_SIZE` |
+| Classes | PascalCase | `CdpBridge` |
+| Interfaces | PascalCase | `DiscordMessage` |
+| Type aliases | PascalCase | `ThreadChannel` |
+
+### Files and Folders
+
+- **Source files**: kebab-case (e.g., `cdp-bridge.ts`)
+- **Test files**: `__tests__/` directory, kebab-case (e.g., `utils.test.ts`)
+
+## File Organization
+
+### Project Structure
+
+```
+src/
+├── extension.ts         # Extension entry point (activate/deactivate)
+├── discord-client.ts    # Discord bot client wrapper
+├── cdp-bridge.ts        # CDP WebSocket bridge to Antigravity
+├── chat-panel.ts        # WebView panel provider
+├── utils.ts             # Shared utilities (noise filtering, etc.)
+└── __tests__/           # Test files
+```
+
+### Conventions
+
+- **One class per file**: Each module exports a single primary class or set of related functions
+- **Entry point**: `extension.ts` contains `activate()` and `deactivate()`
+- **Separation**: Discord logic, CDP logic, and UI logic are isolated in separate modules
+
+## Import Order
+
+```typescript
+// 1. Node.js built-ins
+import * as fs from "fs";
+import * as path from "path";
+
+// 2. VS Code API
+import * as vscode from "vscode";
+
+// 3. External packages
+import { Client } from "discord.js";
+
+// 4. Internal modules
+import { CdpBridge } from "./cdp-bridge.js";
+```
+
+**Rules**:
+- Group imports by source (built-in, vscode, external, internal)
+- Use `.js` extension for internal imports (Node16 module resolution)
+- Prefer named imports over namespace imports for internal modules
+
+## Error Handling
+
+### Pattern
+
+**Approach**: Try/catch with typed error extraction
+
+### Guidelines
+
+- Always catch errors in async functions to prevent unhandled rejections
+- Extract error messages with `err instanceof Error ? err.message : String(err)`
+- Log errors to the output channel before re-throwing or handling
+- Use empty catch blocks `catch { }` only for truly non-critical, fire-and-forget operations
+
+### Example
+
+```typescript
+try {
+    await cdpBridge.connect();
+} catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`[Extension] CDP failed: ${errorMsg}`);
+    cdpBridge = null;
+}
+```
+
+## Logging
+
+**Tool**: `vscode.OutputChannel` ("Antigravity Discord")
+**Format**: `[Component] message` with optional `[PID=N]` prefix
+
+### Log Levels
+
+| Level | Usage |
+|-------|-------|
+| Info | `outputChannel.appendLine("[Extension] ...")` — Normal operations |
+| Error | `outputChannel.appendLine("[Extension] Error: ...")` — Failures with context |
+| Debug | `outputChannel.appendLine("[CDP] ...")` — CDP protocol details |
+
+### Guidelines
+
+**Always log**:
+- Connection state changes (connect, disconnect, reconnect)
+- Message processing lifecycle (received, injected, response extracted, sent)
+- Error details with component prefix
+
+**Never log**:
+- Discord bot token or sensitive credentials
+- Full message content in production (truncate to 50 chars)
+- Raw CDP protocol frames (too verbose)
+
+## Comments and Documentation
+
+### When to Comment
+
+- Document the "why", not the "what"
+- Add JSDoc for exported functions and classes
+- Use inline comments for complex CDP selectors and async coordination logic
+
+### Documentation Format
+
+**Functions**: JSDoc `/** ... */` for exports
+**Classes**: JSDoc class-level description
+
+## Code Patterns
+
+### Preferred Patterns
+
+#### Singleton Lock
+
+Use file-based PID lock to prevent multiple extension hosts from competing.
+
+```typescript
+const LOCK_FILE = path.join(os.tmpdir(), 'my-lock.lock');
+function acquireLock(): boolean { /* ... */ }
+```
+
+#### Message Queue
+
+Queue incoming messages when the processor is busy, with size limits.
+
+```typescript
+const messageQueue: Message[] = [];
+const MAX_QUEUE_SIZE = 5;
+```
+
+### Anti-Patterns to Avoid
+
+- **Nested callbacks**: Use async/await instead of callback chains
+- **Untyped catches**: Always type catch parameter as `unknown`
+- **Global mutable state**: Minimize module-level `let` variables; prefer encapsulation in classes
+
+---
+*Generated by specs.md - fabriqa.ai FIRE Flow*

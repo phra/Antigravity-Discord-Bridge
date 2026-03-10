@@ -33,6 +33,13 @@ export function isNoiseLine(line: string): boolean {
 
     // Thought/thinking markers that are UI chrome, not content
     if (/^Thought for/.test(line)) return true;
+    if (/^Thinking\.{0,3}$/.test(line)) return true;
+
+    // Processing/completion UI markers
+    if (/^✅\s*Elaborazione completata/.test(line)) return true;
+    if (/^Elaborazione completata/.test(line)) return true;
+    if (/^Simple request/i.test(line)) return true;
+    if (/no task needed/i.test(line)) return true;
 
     // Antigravity UI chrome elements
     if (/^⋯ Expand \d+ more lines?$/.test(line)) return true;
@@ -43,11 +50,17 @@ export function isNoiseLine(line: string): boolean {
 
     // Auto-accept scan output (JSON arrays of button texts)
     if (/^\[AutoAccept\]/.test(line)) return true;
+    // CDP-prefixed AutoAccept (from output channel echo)
+    if (/^\[CDP\]\s*\[AutoAccept\]/.test(line)) return true;
     if (/^\["/.test(line) && /"?\]$/.test(line)) return true;
     // Fragmented scan output (partial JSON arrays)
     if (/^\d+ more lines","/.test(line)) return true;
     if (/^"\u22ef Expand \d+/.test(line)) return true;
     if (/","/.test(line) && (/"Always run"/.test(line) || /"Review Changes"/.test(line) || /"Planning"/.test(line))) return true;
+    // Fragmented "Thought for" button text from scan arrays
+    if (/^"Thought for/.test(line)) return true;
+    if (/^for \d+s"/.test(line)) return true;
+    if (/^"",""/.test(line)) return true;
 
     return false;
 }

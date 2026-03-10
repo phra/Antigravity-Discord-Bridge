@@ -5,13 +5,13 @@ import {
     ThreadChannel,
     Message,
     Events,
-    Partials,
     ActivityType,
     PresenceStatusData,
     ThreadAutoArchiveDuration,
+    ChannelType,
 } from "discord.js";
-import * as vscode from "vscode";
-import { splitMessage as utilSplitMessage, findSplitPoint as utilFindSplitPoint } from "./utils";
+import type * as vscode from "vscode";
+import { splitMessage } from "./utils.js";
 
 export interface DiscordMessage {
     author: string;
@@ -19,163 +19,204 @@ export interface DiscordMessage {
     timestamp: Date;
     attachments: string[];
     messageId: string;
+    /** Thread ID if the message came from a thread (continuing an existing conversation) */
+    threadId?: string;
+    /** True if the message was sent in the main channel (starts a new conversation) */
+    isMainChannel: boolean;
 }
 
 type MessageCallback = (msg: DiscordMessage) => void;
 
+/**
+ * Clean Discord bot client.
+ *
+ * Message routing rules (single gate, no overlapping dedup):
+ * 1. Ignore all bot messages (prevents loops)
+ * 2. Accept messages in the main channel → new conversation
+ * 3. Accept messages in threads under the main channel → continue conversation
+ * 4. Skip thread-starter echoes (message.id === thread.id when startThread() is used)
+ * 5. All other messages → ignore
+ *
+ * Deduplication is NOT done here — it's the orchestrator's responsibility.
+ */
 export class DiscordClient {
     private client: Client;
     private channel: TextChannel | null = null;
     private channelId: string;
     private messageCallback: MessageCallback | null = null;
-    private outputChannel: vscode.OutputChannel;
+    private log: vscode.OutputChannel;
     private connected = false;
 
     constructor(channelId: string, outputChannel: vscode.OutputChannel) {
         this.channelId = channelId;
-        this.outputChannel = outputChannel;
+        this.log = outputChannel;
         this.client = new Client({
             intents: [
                 GatewayIntentBits.Guilds,
                 GatewayIntentBits.GuildMessages,
                 GatewayIntentBits.MessageContent,
             ],
-            partials: [Partials.Message, Partials.Channel],
         });
 
+        // Register the single message listener
         this.client.on(Events.MessageCreate, (message: Message) => {
-            this.handleMessage(message);
+            this.routeMessage(message);
         });
 
         this.client.on(Events.Error, (error: Error) => {
-            this.outputChannel.appendLine(`[Discord] Error: ${error.message}`);
+            this.log.appendLine(`[Discord] Error: ${error.message}`);
         });
     }
 
+    // ── Connection ───────────────────────────────────────────
+
     async connect(token: string): Promise<void> {
-        this.outputChannel.appendLine("[Discord] Connecting...");
+        this.log.appendLine("[Discord] Connecting...");
         await this.client.login(token);
 
         const ch = await this.client.channels.fetch(this.channelId);
         if (!ch || !(ch instanceof TextChannel)) {
-            throw new Error(
-                `Channel ${this.channelId} not found or is not a text channel`
-            );
+            throw new Error(`Channel ${this.channelId} not found or not a text channel`);
         }
         this.channel = ch;
         this.connected = true;
-        this.outputChannel.appendLine(
-            `[Discord] Connected to #${this.channel.name}`
-        );
+        this.log.appendLine(`[Discord] Connected to #${this.channel.name}`);
+    }
+
+    async reconnect(token: string, channelId?: string): Promise<void> {
+        if (channelId) this.channelId = channelId;
+
+        if (!this.client.isReady()) {
+            this.log.appendLine("[Discord] Re-logging in...");
+            await this.client.login(token);
+        }
+
+        const ch = await this.client.channels.fetch(this.channelId);
+        if (!ch || !(ch instanceof TextChannel)) {
+            throw new Error(`Channel ${this.channelId} not found or not a text channel`);
+        }
+        this.channel = ch;
+        this.connected = true;
+        this.log.appendLine(`[Discord] Reconnected to #${this.channel.name}`);
     }
 
     async disconnect(): Promise<void> {
         this.connected = false;
         this.client.destroy();
-        this.outputChannel.appendLine("[Discord] Disconnected");
+        this.log.appendLine("[Discord] Disconnected");
     }
 
     isConnected(): boolean {
         return this.connected;
     }
 
+    // ── Callbacks ────────────────────────────────────────────
+
     onMessage(callback: MessageCallback): void {
         this.messageCallback = callback;
     }
 
-    async sendMessage(content: string): Promise<void> {
-        if (!this.channel) {
-            throw new Error("Not connected to Discord");
-        }
+    // ── Sending messages ─────────────────────────────────────
 
-        const chunks = this.splitMessage(content);
-        for (const chunk of chunks) {
+    async sendMessage(content: string): Promise<void> {
+        if (!this.channel) throw new Error("Not connected to Discord");
+        for (const chunk of splitMessage(content)) {
             await this.channel.send(chunk);
         }
     }
 
-    /**
-     * Create a thread on a specific message (for reasoning stream).
-     */
-    async createThread(messageId: string, name: string): Promise<ThreadChannel> {
-        if (!this.channel) {
-            throw new Error("Not connected to Discord");
-        }
-
-        const message = await this.channel.messages.fetch(messageId);
-        const thread = await message.startThread({
-            name: name.substring(0, 100), // Discord max thread name = 100 chars
-            autoArchiveDuration: ThreadAutoArchiveDuration.OneHour,
-        });
-
-        this.outputChannel.appendLine(
-            `[Discord] Created thread: ${thread.name}`
-        );
-        return thread;
-    }
-
-    /**
-     * Send a message to a thread, splitting if needed.
-     */
     async sendToThread(thread: ThreadChannel, content: string): Promise<void> {
-        const chunks = this.splitMessage(content);
+        const chunks = splitMessage(content);
         for (const chunk of chunks) {
-            await thread.send(chunk);
+            const nonce = `${Date.now()}${Math.floor(Math.random() * 100000).toString().padStart(5, "0")}`;
+            await thread.send({ content: chunk, nonce, enforceNonce: true });
         }
     }
 
-    async setTyping(): Promise<void> {
-        if (this.channel) {
-            await this.channel.sendTyping();
+    // ── Thread management ────────────────────────────────────
+
+    async createThread(messageId: string, name: string): Promise<ThreadChannel> {
+        if (!this.channel) throw new Error("Not connected to Discord");
+        const message = await this.channel.messages.fetch(messageId);
+        return message.startThread({
+            name: name.substring(0, 100),
+            autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
+        });
+    }
+
+    async createConversationThread(name: string): Promise<ThreadChannel> {
+        if (!this.channel) throw new Error("Not connected to Discord");
+        return this.channel.threads.create({
+            name: name.substring(0, 100),
+            autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
+            type: ChannelType.PublicThread,
+        });
+    }
+
+    async getThread(threadId: string): Promise<ThreadChannel | null> {
+        try {
+            const ch = await this.client.channels.fetch(threadId);
+            return ch?.isThread() ? (ch as ThreadChannel) : null;
+        } catch {
+            return null;
         }
     }
+
+    // ── Presence ─────────────────────────────────────────────
 
     setPresence(status: PresenceStatusData, activity: string): void {
         this.client.user?.setPresence({
             status,
-            activities: [
-                {
-                    name: activity,
-                    type: ActivityType.Custom,
-                    state: activity,
-                },
-            ],
+            activities: [{
+                name: activity,
+                type: ActivityType.Custom,
+                state: activity,
+            }],
         });
-        this.outputChannel.appendLine(
-            `[Discord] Presence → ${status}: "${activity}"`
-        );
     }
 
-    private handleMessage(message: Message): void {
-        // Ignore bot messages (prevents loops)
-        if (message.author.bot) {
+    async setTypingInThread(thread: ThreadChannel): Promise<void> {
+        await thread.sendTyping();
+    }
+
+    // ── Message routing (single gate) ────────────────────────
+
+    private routeMessage(message: Message): void {
+        // Rule 1: Ignore bot messages
+        if (message.author.bot) return;
+
+        const isMainChannel = message.channelId === this.channelId;
+        const isOurThread = message.channel.isThread() &&
+            message.channel.parentId === this.channelId;
+
+        // Rule 5: Only our channel or its threads
+        if (!isMainChannel && !isOurThread) return;
+
+        // Rule 4: Skip thread-starter echo
+        // When startThread() creates a thread on a message, Discord re-emits
+        // the original message as a thread message with message.id === thread.id
+        if (isOurThread && message.id === message.channelId) {
+            this.log.appendLine(
+                `[Discord] Skipping thread-starter echo: ${message.id}`
+            );
             return;
         }
-        // Only process messages from the configured channel
-        if (message.channelId !== this.channelId) {
-            return;
-        }
 
-        this.outputChannel.appendLine(
-            `[Discord] Message from ${message.author.displayName}: ${message.content}`
+        const threadId = isOurThread ? message.channelId : undefined;
+
+        this.log.appendLine(
+            `[Discord] ${isMainChannel ? "📩 Main" : "💬 Thread"} from ${message.author.displayName}: ` +
+            `"${message.content.substring(0, 80)}"`
         );
 
-        if (this.messageCallback) {
-            this.messageCallback({
-                author: message.author.displayName,
-                content: message.content,
-                timestamp: message.createdAt,
-                attachments: message.attachments.map((a) => a.url),
-                messageId: message.id,
-            });
-        }
-    }
-
-    private splitMessage(text: string, maxLen = 2000): string[] {
-        return utilSplitMessage(text, maxLen);
-    }
-
-    private findSplitPoint(text: string, maxLen: number): number {
-        return utilFindSplitPoint(text, maxLen);
+        this.messageCallback?.({
+            author: message.author.displayName,
+            content: message.content,
+            timestamp: message.createdAt,
+            attachments: message.attachments.map(a => a.url),
+            messageId: message.id,
+            threadId,
+            isMainChannel,
+        });
     }
 }

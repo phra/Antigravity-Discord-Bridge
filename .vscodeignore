@@ -28,3 +28,4 @@ node_modules/
 
 # Unused SVG (icon.png is used instead)
 media/icon.svg
+.env

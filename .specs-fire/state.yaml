@@ -1,0 +1,56 @@
+project:
+  name: "antigravity-discord-bridge"
+  description: "VS Code extension that bridges Discord channels with the Antigravity AI chat editor via CDP"
+  created: "2026-03-10T03:34:00Z"
+  fire_version: "0.1.8"
+
+workspace:
+  type: brownfield
+  structure: monolith
+  autonomy_bias: balanced
+  run_scope_preference: single
+  run_scope_history: []
+  scanned_at: "2026-03-10T03:34:00Z"
+
+intents:
+  - id: extension-rewrite
+    title: "Complete Extension Rewrite — Fix Duplicate Processing & Multi-Conversation Support"
+    status: done
+    work_items:
+      - id: investigate-dual-host
+        title: "Investigare dual extension host loading"
+        status: done
+        complexity: low
+        mode: autopilot
+      - id: rewrite-discord-client
+        title: "Riscrivere DiscordClient"
+        status: done
+        complexity: medium
+        mode: confirm
+      - id: rewrite-cdp-bridge
+        title: "Riscrivere CdpBridge"
+        status: done
+        complexity: medium
+        mode: confirm
+      - id: rewrite-orchestrator
+        title: "Riscrivere Extension orchestrator"
+        status: done
+        complexity: high
+        mode: validate
+        depends_on: [rewrite-discord-client, rewrite-cdp-bridge]
+      - id: multi-conversation
+        title: "Multi-conversation support"
+        status: done
+        complexity: medium
+        mode: confirm
+        depends_on: [rewrite-orchestrator]
+      - id: tests-verification
+        title: "Tests e verification"
+        status: done
+        complexity: medium
+        mode: confirm
+        depends_on: [rewrite-discord-client, rewrite-cdp-bridge, rewrite-orchestrator]
+
+runs:
+  active: []
+  completed: []

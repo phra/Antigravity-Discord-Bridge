@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     isNoiseLine,
+    isMcpNoise,
     isAcceptButton,
     splitMessage,
     findSplitPoint,
@@ -31,6 +32,7 @@ describe('isNoiseLine', () => {
         expect(isNoiseLine('Diff result: 5 new lines')).toBe(true);
         expect(isNoiseLine('Agent is processing...')).toBe(true);
         expect(isNoiseLine('Agent finished processing')).toBe(true);
+        expect(isNoiseLine('Agent never became busy — checking for response anyway')).toBe(true);
         expect(isNoiseLine('Message injected via CDP')).toBe(true);
         expect(isNoiseLine('Found chat editor in context 23')).toBe(true);
         expect(isNoiseLine('Still waiting for agent response')).toBe(true);
@@ -38,6 +40,7 @@ describe('isNoiseLine', () => {
 
     it('detects UI chrome/thought markers', () => {
         expect(isNoiseLine('Thought for 3s')).toBe(true);
+        expect(isNoiseLine('Thought for <1s')).toBe(true);
         expect(isNoiseLine('Ctrl+I to toggle inline chat')).toBe(true);
     });
 
@@ -55,12 +58,14 @@ describe('isNoiseLine', () => {
         expect(isNoiseLine('Here is the code:')).toBe(false);
         expect(isNoiseLine('1. First step')).toBe(false);
         expect(isNoiseLine('- bullet point')).toBe(false);
+        expect(isNoiseLine('Uno, due, tre, quattro, cinque')).toBe(false);
     });
 
     it('does not false-positive on content containing keywords', () => {
         expect(isNoiseLine('The agent is a software component')).toBe(false);
         expect(isNoiseLine('Use Ctrl+C to copy')).toBe(false);
         expect(isNoiseLine('I thought about this problem')).toBe(false);
+        expect(isNoiseLine('This is a simple approach')).toBe(false);
     });
 
     it('detects Antigravity UI chrome elements', () => {
@@ -73,11 +78,65 @@ describe('isNoiseLine', () => {
         expect(isNoiseLine('Review')).toBe(true);
         expect(isNoiseLine('Cancel')).toBe(true);
         expect(isNoiseLine('Submit')).toBe(true);
+        expect(isNoiseLine('Reject')).toBe(true);
+        expect(isNoiseLine('Accept')).toBe(true);
     });
 
     it('detects auto-accept scan output', () => {
         expect(isNoiseLine('[AutoAccept] Scan #1: 28 buttons.')).toBe(true);
         expect(isNoiseLine('["Always run","Review","Planning",""]')).toBe(true);
+    });
+
+    it('detects Thinking markers', () => {
+        expect(isNoiseLine('Thinking')).toBe(true);
+        expect(isNoiseLine('Thinking.')).toBe(true);
+        expect(isNoiseLine('Thinking..')).toBe(true);
+        expect(isNoiseLine('Thinking...')).toBe(true);
+    });
+
+    it('detects elaborazione completata', () => {
+        expect(isNoiseLine('✅ Elaborazione completata')).toBe(true);
+        expect(isNoiseLine('Elaborazione completata')).toBe(true);
+    });
+
+    it('detects Simple request and no task needed markers', () => {
+        expect(isNoiseLine('Simple request, no task needed.')).toBe(true);
+        expect(isNoiseLine('Simple request: just answer.')).toBe(true);
+        expect(isNoiseLine('This requires no task needed for completion')).toBe(true);
+    });
+
+    it('detects CDP-prefixed AutoAccept', () => {
+        expect(isNoiseLine('[CDP] [AutoAccept] Scan #3341: 8 buttons. Sample: [...]')).toBe(true);
+    });
+
+    it('detects fragmented scan JSON', () => {
+        expect(isNoiseLine('"Thought for <1s","Thought for 1s"')).toBe(true);
+        expect(isNoiseLine('"",""')).toBe(true);
+        expect(isNoiseLine('for 3s"')).toBe(true);
+    });
+});
+
+// ── isMcpNoise ──────────────────────────────────────────
+
+describe('isMcpNoise', () => {
+    it('detects MCP configuration text', () => {
+        expect(isMcpNoise('Configuring MCP server...')).toBe(true);
+        expect(isMcpNoise('MCP (Model Context Protocol) allows extensions')).toBe(true);
+        expect(isMcpNoise('Add the following to mcpServers in your config')).toBe(true);
+        expect(isMcpNoise('@modelcontextprotocol/server-example')).toBe(true);
+        expect(isMcpNoise('An MCP server implements tools')).toBe(true);
+    });
+
+    it('detects VS Code dialog noise', () => {
+        expect(isMcpNoise('Press desired key combination and then press ENTER')).toBe(true);
+        expect(isMcpNoise('Set GITHUB_PERSONAL_ACCESS_TOKEN in your env')).toBe(true);
+    });
+
+    it('passes through actual content', () => {
+        expect(isMcpNoise('Hello, how can I help?')).toBe(false);
+        expect(isMcpNoise('Here is the implementation')).toBe(false);
+        expect(isMcpNoise('The server runs on port 3000')).toBe(false);
+        expect(isMcpNoise('Use the protocol buffer format')).toBe(false);
     });
 });
 
@@ -297,5 +356,129 @@ describe('decodeHtmlEntities', () => {
 
     it('passes through text without entities', () => {
         expect(decodeHtmlEntities('hello world')).toBe('hello world');
+    });
+});
+
+// ── Response cleaning pipeline ────────────────────────────
+// Integration test: simulates the noise-filtering pipeline from extension.ts
+
+describe('response cleaning pipeline', () => {
+    /**
+     * Replicates the cleaning logic in extension.ts handleDiscordMessage:
+     * filter isNoiseLine, filter user message echo, collapse blank lines.
+     */
+    function cleanResponse(raw: string, userMessage: string): string {
+        return raw
+            .split('\n')
+            .filter(line => {
+                const trimmed = line.trim();
+                if (trimmed.length === 0) return true;
+                if (isNoiseLine(trimmed)) return false;
+                if (trimmed === userMessage.trim()) return false;
+                if (/^Simple request/i.test(trimmed)) return false;
+                return true;
+            })
+            .join('\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+
+    it('strips all debug noise from a raw response', () => {
+        const raw = [
+            '[Discord] Message from phra: conta da uno a dieci',
+            '[Extension] Processing message from phra: conta da uno a dieci',
+            '[CDP] Pre-snapshot: 114 messages',
+            '[CDP] [AutoAccept] Scan #11561: 5 buttons. Sample: [...]',
+            'Thought for <1s',
+            'conta da uno a dieci',
+            'Simple request, no task needed.',
+            '1, 2, 3, 4, 5, 6, 7, 8, 9, 10! 🔢',
+            '✅ Elaborazione completata',
+        ].join('\n');
+
+        const result = cleanResponse(raw, 'conta da uno a dieci');
+        expect(result).toBe('1, 2, 3, 4, 5, 6, 7, 8, 9, 10! 🔢');
+    });
+
+    it('preserves multi-paragraph responses', () => {
+        const raw = [
+            '[CDP] Pre-snapshot: 10 messages',
+            'Thought for 3s',
+            '',
+            'Here is the explanation:',
+            '',
+            '1. First, we define the function.',
+            '2. Then, we call it.',
+            '',
+            '✅ Elaborazione completata',
+        ].join('\n');
+
+        const result = cleanResponse(raw, 'explain this code');
+        expect(result).toBe(
+            'Here is the explanation:\n\n1. First, we define the function.\n2. Then, we call it.'
+        );
+    });
+
+    it('preserves code blocks in responses', () => {
+        const raw = [
+            'Thinking...',
+            '',
+            'Here is the code:',
+            '',
+            '```typescript',
+            'const x = 1;',
+            'console.log(x);',
+            '```',
+            '',
+            'This prints `1`.',
+        ].join('\n');
+
+        const result = cleanResponse(raw, 'write a hello world');
+        expect(result).toContain('```typescript');
+        expect(result).toContain('const x = 1;');
+        expect(result).toContain('This prints `1`.');
+    });
+
+    it('returns empty string when only noise is present', () => {
+        const raw = [
+            '[CDP] Pre-snapshot: 10 messages',
+            '[CDP] [AutoAccept] Scan #100: 3 buttons.',
+            'Thought for <1s',
+            '✅ Elaborazione completata',
+        ].join('\n');
+
+        const result = cleanResponse(raw, 'test');
+        expect(result).toBe('');
+    });
+
+    it('does not strip legitimate content that resembles noise keywords', () => {
+        const raw = [
+            'The agent is a core component that processes tasks.',
+            'It was thought about carefully before implementation.',
+            'This is a simple approach to the problem.',
+        ].join('\n');
+
+        const result = cleanResponse(raw, 'explain the agent');
+        expect(result).toContain('The agent is a core component');
+        expect(result).toContain('thought about carefully');
+        expect(result).toContain('simple approach');
+    });
+
+    it('handles spoiler-sized thinking chunks within 1990 char limit', () => {
+        const thinking = 'x'.repeat(4000);
+        const maxChunk = 1990;
+        const chunks: string[] = [];
+        for (let i = 0; i < thinking.length; i += maxChunk) {
+            chunks.push(thinking.substring(i, i + maxChunk));
+        }
+        expect(chunks.length).toBe(3);
+        expect(chunks[0].length).toBe(1990);
+        expect(chunks[1].length).toBe(1990);
+        expect(chunks[2].length).toBe(20);
+        // Each chunk wrapped in spoiler must be ≤ 2000 chars
+        chunks.forEach(c => {
+            const spoiler = `💭 ||${c}||`;
+            expect(spoiler.length).toBeLessThanOrEqual(2000);
+        });
     });
 });
