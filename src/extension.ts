@@ -51,11 +51,11 @@ function refreshHeartbeat(ctx: vscode.ExtensionContext): void {
     ctx.globalState.update(LEADER_HEARTBEAT_KEY, Date.now());
 }
 
-function releaseLeadership(ctx: vscode.ExtensionContext): void {
+async function releaseLeadership(ctx: vscode.ExtensionContext): Promise<void> {
     const currentLeader = ctx.globalState.get<string>(LEADER_KEY);
     if (currentLeader?.startsWith(`${process.pid}-`)) {
-        ctx.globalState.update(LEADER_KEY, undefined);
-        ctx.globalState.update(LEADER_HEARTBEAT_KEY, undefined);
+        await ctx.globalState.update(LEADER_KEY, undefined);
+        await ctx.globalState.update(LEADER_HEARTBEAT_KEY, undefined);
     }
 }
 
@@ -542,16 +542,23 @@ class BridgeController {
 
 let controller: BridgeController | null = null;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel("Antigravity Discord");
 
     // Leader election: only one extension host connects to Discord
     if (!tryBecomeLeader(context)) {
+        // May be stale from extension host reload — wait briefly and retry
         outputChannel.appendLine(
-            `[Extension] [PID=${process.pid}] Another instance is the leader — skipping Discord connection`
+            `[Extension] [PID=${process.pid}] Leader election deferred — retrying in 2s...`
         );
-        outputChannel.show(true);
-        return;
+        await new Promise(r => setTimeout(r, 2000));
+        if (!tryBecomeLeader(context)) {
+            outputChannel.appendLine(
+                `[Extension] [PID=${process.pid}] Another instance is the leader — skipping Discord connection`
+            );
+            outputChannel.show(true);
+            return;
+        }
     }
 
     outputChannel.appendLine(`[Extension] [PID=${process.pid}] Elected as leader`);
@@ -564,6 +571,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-    controller?.stop();
+    const p = controller?.stop();
     controller = null;
+    return p;
 }
