@@ -5,14 +5,17 @@
 ## Features
 
 - 🤖 **Auto-processing** — Discord messages are automatically sent to the IDE Language Model (Gemini, Copilot, etc.) and responses are posted back
-- 🔧 **CDP Bridge** — Uses Chrome DevTools Protocol to interact with the Antigravity chat editor, injecting messages and extracting responses via DOM diffing
-- ✅ **Auto-Accept** — Automatically clicks Accept / Run / Always Allow buttons, always-on when CDP is connected, with `scrollIntoView` for off-screen buttons
+- 💬 **Multi-conversation** — Each Discord message creates a thread; replies in threads continue the same Antigravity conversation
+- 🔧 **CDP Bridge** — Uses Chrome DevTools Protocol to interact with the Antigravity chat editor, preferring the Manager window for stability
+- ✅ **Auto-Accept** — Automatically clicks Accept / Run / Always Allow buttons, always-on when CDP is connected
 - 📋 **Message Queue** — Concurrent Discord messages are queued (up to 5) instead of rejected, with position feedback
-- 🎨 **Rich Markdown** — Code blocks with syntax highlighting, bold, italic, inline code, lists, and blockquotes are preserved on Discord
+- 🔒 **Single-instance** — Leader election via VS Code `globalState` ensures only one extension host connects to Discord, even with multiple windows open
+- 🎨 **Rich Markdown** — Code blocks, bold, italic, inline code, lists, and blockquotes are preserved on Discord
 - ⚙️ **Settings GUI** — Tabbed sidebar panel with built-in settings form (Bot Token, Channel ID, Debug Port, Auto-Accept toggle)
 - 📡 **Live Status** — Green/red connection indicators for Discord, CDP, and Auto-Accept right in the sidebar
 - ✂️ **Smart message splitting** — Automatically splits long responses to respect Discord's 2000-character limit
 - 🔇 **Noise filtering** — Strips Antigravity UI chrome and diagnostic logs from responses automatically
+- 💭 **Thinking spoilers** — AI reasoning/thinking content is sent as Discord spoiler text
 - 🎨 **VS Code theming** — Chat and settings panels follow your IDE theme
 
 ## Screenshots
@@ -84,7 +87,9 @@ The bot connects automatically. You should see **"Antigravity Discord Bridge: Co
 ### 4. Use It
 
 **From Discord:**
-Just type in the configured channel. The bot processes your message with the AI agent and replies automatically.
+- Type in the configured channel → a thread is created with the AI response
+- Reply in the thread → continues the same Antigravity conversation
+- Start a new message in the main channel → creates a new conversation
 
 **Sidebar panel:**
 Click the Discord icon in the activity bar to see the conversation and manage settings.
@@ -94,22 +99,32 @@ Click the Discord icon in the activity bar to see the conversation and manage se
 ```
 Discord User → message → Discord Channel
                               ↓
-                    VS Code Extension (discord.js)
+                    BridgeController (leader election via globalState)
                               ↓
-                    CDP Bridge (Chrome DevTools Protocol)
+                    DiscordClient (single routeMessage gate)
+                              ├─ Main channel msg → new Antigravity conversation + new thread
+                              └─ Thread reply → switch to existing conversation
+                              ↓
+                    CdpBridge (Chrome DevTools Protocol → Manager window)
                               ↓
                     Antigravity Chat Editor (DOM injection)
                               ↓
                     AI Agent processes message
                               ↓
-                    CDP extracts response (snapshot diffing)
+                    CDP extracts response (snapshot diffing + markdown extraction)
                               ↓
-                    Response → Discord Channel + Sidebar Panel
+                    Response → Discord Thread + Sidebar Panel
 ```
 
-The extension connects to Antigravity's debugging interface via CDP, finds the chat editor in the DOM, injects messages programmatically, and extracts AI responses by diffing page snapshots before and after processing.
+### Architecture
 
-**Auto-Accept** runs a CDP-injected interval that finds and clicks confirmation buttons (Accept, Run, Always Allow), scrolling them into view if needed. It activates automatically when the CDP connection is established and stays on continuously — no need to trigger it per message.
+- **`BridgeController`** — Orchestrates the message lifecycle. Uses a state machine (`idle` → `processing` → `idle`) and a message queue. Only the elected leader instance connects to Discord.
+- **`DiscordClient`** — Wraps discord.js. A single `routeMessage()` gate with 5 rules handles all incoming messages. No duplicate-processing layers.
+- **`CdpBridge`** — Connects to Antigravity via CDP, preferring the Manager window (flat DOM, stable layout). Handles message injection, response extraction, conversation management, and auto-accept.
+
+**Leader Election:** Antigravity can open multiple windows (IDE, Manager, Launchpad), each with its own extension host. The extension uses VS Code `globalState` with a heartbeat to elect a single leader — other instances skip Discord/CDP connection entirely.
+
+**Auto-Accept** runs a CDP-injected interval that finds and clicks confirmation buttons (Accept, Run, Always Allow), scrolling them into view if needed. It activates automatically when the CDP connection is established.
 
 ## Settings
 
