@@ -55,7 +55,7 @@ describe('DiscordClient message routing', () => {
         vi.clearAllMocks();
         client = new DiscordClient(CHANNEL_ID, mockLog as any);
         callback = vi.fn();
-        client.onMessage(callback);
+        client.onMessage(callback as any);
 
         // Access the internal discord.js Client to emit messages
         discordJsClient = (client as any).client;

@@ -178,7 +178,11 @@ class BridgeController {
                 this.discord.onMessage(msg => this.handleMessage(msg));
                 await this.discord.connect(token);
             }
-            this.discord.setPresence("online", "Waiting for commands");
+            if (this.cdp?.isConnected()) {
+                this.discord.setPresence("online", "Waiting for commands");
+            } else {
+                this.discord.setPresence("idle", "⚠️ CDP non connesso");
+            }
             vscode.window.showInformationMessage("Antigravity Discord Bridge: Connected!");
         } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);
@@ -219,6 +223,10 @@ class BridgeController {
             const errorMsg = err instanceof Error ? err.message : String(err);
             this.log.appendLine(`[Extension] CDP failed: ${errorMsg}`);
             this.cdp = null;
+            // Show away status so operators know CDP is down
+            if (this.discord?.isConnected()) {
+                this.discord.setPresence("idle", "⚠️ CDP non connesso");
+            }
         }
         this.pushStatus();
     }
@@ -289,6 +297,7 @@ class BridgeController {
                     await this.discord.sendMessage(
                         `⚠️ Bridge non connesso. Avvia Antigravity con --remote-debugging-port=9000`
                     );
+                    this.discord.setPresence("idle", "⚠️ CDP non connesso");
                 }
                 return;
             }
