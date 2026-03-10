@@ -6,7 +6,13 @@ tsconfig.json
 # Dev files
 .gitignore
 .github/
+.agent/
+.specs-fire/
+.specsmd/
+.vscode/
 scripts/
+package-lock.json
+src/**/__tests__/
 
 # TypeScript artifacts (not needed — esbuild produces dist/extension.js)
 *.map
