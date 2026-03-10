@@ -21,6 +21,18 @@ const HEARTBEAT_INTERVAL_MS = 5000;
 const HEARTBEAT_TTL_MS = 15000;
 
 /**
+ * Check if a process is still running.
+ */
+function isProcessAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Determine if this extension instance is the leader.
  * Uses VS Code globalState (shared across extension host windows).
  * The leader writes a heartbeat timestamp; other instances defer.
@@ -40,6 +52,14 @@ function tryBecomeLeader(ctx: vscode.ExtensionContext): boolean {
 
     // If WE are the leader (re-activation) → refresh heartbeat
     if (currentLeader.startsWith(`${process.pid}-`)) {
+        ctx.globalState.update(LEADER_HEARTBEAT_KEY, now);
+        return true;
+    }
+
+    // If the leader process is dead (e.g. extension host reloaded) → take over
+    const leaderPid = parseInt(currentLeader.split('-')[0], 10);
+    if (!isNaN(leaderPid) && !isProcessAlive(leaderPid)) {
+        ctx.globalState.update(LEADER_KEY, instanceId);
         ctx.globalState.update(LEADER_HEARTBEAT_KEY, now);
         return true;
     }
@@ -542,23 +562,16 @@ class BridgeController {
 
 let controller: BridgeController | null = null;
 
-export async function activate(context: vscode.ExtensionContext) {
+export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel("Antigravity Discord");
 
     // Leader election: only one extension host connects to Discord
     if (!tryBecomeLeader(context)) {
-        // May be stale from extension host reload — wait briefly and retry
         outputChannel.appendLine(
-            `[Extension] [PID=${process.pid}] Leader election deferred — retrying in 2s...`
+            `[Extension] [PID=${process.pid}] Another instance is the leader — skipping Discord connection`
         );
-        await new Promise(r => setTimeout(r, 2000));
-        if (!tryBecomeLeader(context)) {
-            outputChannel.appendLine(
-                `[Extension] [PID=${process.pid}] Another instance is the leader — skipping Discord connection`
-            );
-            outputChannel.show(true);
-            return;
-        }
+        outputChannel.show(true);
+        return;
     }
 
     outputChannel.appendLine(`[Extension] [PID=${process.pid}] Elected as leader`);
